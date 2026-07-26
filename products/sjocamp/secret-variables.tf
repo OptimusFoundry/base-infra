@@ -2,36 +2,36 @@
 // secrets.tf. Values are supplied via `secrets.auto.tfvars` (gitignored).
 // Rotations flow through `terraform apply` — do NOT use `aws ssm put-parameter`.
 
-variable "jwt_secret" {
+variable "auth_jwt_secret" {
   type      = string
   sensitive = true
 }
 
-variable "google_client_id" {
+variable "auth_google_oauth_client_id" {
   type = string
 }
 
-variable "google_client_secret" {
+variable "auth_google_oauth_client_secret" {
   type      = string
   sensitive = true
 }
 
-variable "stripe_webhook_secret" {
+variable "payments_stripe_webhook_secret" {
   type      = string
   sensitive = true
 }
 
-variable "stripe_billing_portal_config_id" {
+variable "payments_stripe_billing_portal_config_id" {
   type        = string
   description = "Stripe Billing Portal configuration ID (bpc_*). Mode-specific — must be a live-mode config in production."
 }
 
-variable "resend_webhook_secret" {
+variable "email_resend_webhook_secret" {
   type      = string
   sensitive = true
 }
 
-variable "default_email_sender_address" {
+variable "email_sender_address" {
   type = string
 }
 

@@ -6,72 +6,127 @@
 //
 // Account-wide secrets (resend, openai, gemini, stripe keys, turnstile, db
 // master creds) live at /platform/* and are read via data.tf.
+//
+// Names below carry a domain segment (auth/, payments/, email/, db/, app/),
+// matching env-registry's env-var-rename: SAVentures/env-registry
+// docs/superpowers/specs/2026-07-26-env-var-rename-design.md. See orca's
+// secrets.tf for the fuller explanation of why `moved` doesn't avoid the
+// underlying SSM replace here (ForceNew name).
+
+moved {
+  from = aws_ssm_parameter.web_app_uri
+  to   = aws_ssm_parameter.app_webapp_uri
+}
+
+moved {
+  from = aws_ssm_parameter.google_redirect_uri
+  to   = aws_ssm_parameter.auth_google_redirect_uri
+}
+
+moved {
+  from = aws_ssm_parameter.jwt_secret
+  to   = aws_ssm_parameter.auth_jwt_secret
+}
+
+moved {
+  from = aws_ssm_parameter.google_client_id
+  to   = aws_ssm_parameter.auth_google_oauth_client_id
+}
+
+moved {
+  from = aws_ssm_parameter.google_client_secret
+  to   = aws_ssm_parameter.auth_google_oauth_client_secret
+}
+
+moved {
+  from = aws_ssm_parameter.stripe_webhook_secret
+  to   = aws_ssm_parameter.payments_stripe_webhook_secret
+}
+
+moved {
+  from = aws_ssm_parameter.stripe_billing_portal_config_id
+  to   = aws_ssm_parameter.payments_stripe_billing_portal_config_id
+}
+
+moved {
+  from = aws_ssm_parameter.resend_webhook_secret
+  to   = aws_ssm_parameter.email_resend_webhook_secret
+}
+
+moved {
+  from = aws_ssm_parameter.default_email_sender_address
+  to   = aws_ssm_parameter.email_sender_address
+}
 
 // --- Derived from product / domain (always TF-managed) ---
 
-resource "aws_ssm_parameter" "web_app_uri" {
-  name  = "/${var.product}/web_app_uri"
+resource "aws_ssm_parameter" "app_webapp_uri" {
+  name  = "/${var.product}/app/webapp_uri"
   type  = "String"
   value = "https://${var.domain_name}"
 }
 
-resource "aws_ssm_parameter" "google_redirect_uri" {
-  name  = "/${var.product}/google_redirect_uri"
+resource "aws_ssm_parameter" "auth_google_redirect_uri" {
+  name  = "/${var.product}/auth/google_redirect_uri"
   type  = "String"
   value = "https://${var.domain_name}/api/auth/google/callback"
 }
 
 resource "aws_ssm_parameter" "db_name" {
-  name  = "/${var.product}/db_name"
+  name  = "/${var.product}/db/name"
   type  = "String"
   value = var.product
 }
 
 // --- Secret values sourced from var.* (secrets.auto.tfvars) ---
 
-resource "aws_ssm_parameter" "jwt_secret" {
-  name  = "/${var.product}/jwt_secret"
+resource "aws_ssm_parameter" "auth_jwt_secret" {
+  name  = "/${var.product}/auth/jwt_secret"
   type  = "SecureString"
-  value = var.jwt_secret
+  value = var.auth_jwt_secret
 }
 
-resource "aws_ssm_parameter" "google_client_id" {
-  name  = "/${var.product}/google_client_id"
+resource "aws_ssm_parameter" "auth_google_oauth_client_id" {
+  name  = "/${var.product}/auth/google_oauth_client_id"
   type  = "String"
-  value = var.google_client_id
+  value = var.auth_google_oauth_client_id
 }
 
-resource "aws_ssm_parameter" "google_client_secret" {
-  name  = "/${var.product}/google_client_secret"
+resource "aws_ssm_parameter" "auth_google_oauth_client_secret" {
+  name  = "/${var.product}/auth/google_oauth_client_secret"
   type  = "SecureString"
-  value = var.google_client_secret
+  value = var.auth_google_oauth_client_secret
 }
 
-resource "aws_ssm_parameter" "stripe_webhook_secret" {
-  name  = "/${var.product}/stripe_webhook_secret"
+resource "aws_ssm_parameter" "payments_stripe_webhook_secret" {
+  name  = "/${var.product}/payments/stripe_webhook_secret"
   type  = "SecureString"
-  value = var.stripe_webhook_secret
+  value = var.payments_stripe_webhook_secret
 }
 
-resource "aws_ssm_parameter" "stripe_billing_portal_config_id" {
-  name  = "/${var.product}/stripe_billing_portal_config_id"
+resource "aws_ssm_parameter" "payments_stripe_billing_portal_config_id" {
+  name  = "/${var.product}/payments/stripe_billing_portal_config_id"
   type  = "String"
-  value = var.stripe_billing_portal_config_id
+  value = var.payments_stripe_billing_portal_config_id
 }
 
-resource "aws_ssm_parameter" "resend_webhook_secret" {
-  name  = "/${var.product}/resend_webhook_secret"
+resource "aws_ssm_parameter" "email_resend_webhook_secret" {
+  name  = "/${var.product}/email/resend_webhook_secret"
   type  = "SecureString"
-  value = var.resend_webhook_secret
+  value = var.email_resend_webhook_secret
 }
 
-resource "aws_ssm_parameter" "default_email_sender_address" {
-  name  = "/${var.product}/default_email_sender_address"
+resource "aws_ssm_parameter" "email_sender_address" {
+  name  = "/${var.product}/email/sender_address"
   type  = "String"
-  value = var.default_email_sender_address
+  value = var.email_sender_address
 }
 
 // --- Sentry (webapp runtime error reporting) ---
+//
+// Already domain-qualified before this rename — see env-registry's spec,
+// "sentry and capture_worker groups already exist and are unchanged." No
+// `moved` block needed.
 //
 // DSN is technically public (embedded in the client bundle at build time) but
 // stored in SSM so the same TF source of truth governs it. Auth token is the

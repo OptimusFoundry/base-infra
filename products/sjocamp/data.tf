@@ -47,32 +47,32 @@ data "aws_ssm_parameter" "rds_port" {
 
 # --- Product-owned (per-product secrets) ---
 
-data "aws_ssm_parameter" "jwt_secret" {
-  name       = aws_ssm_parameter.jwt_secret.name
-  depends_on = [aws_ssm_parameter.jwt_secret]
+data "aws_ssm_parameter" "auth_jwt_secret" {
+  name       = aws_ssm_parameter.auth_jwt_secret.name
+  depends_on = [aws_ssm_parameter.auth_jwt_secret]
 }
 
-data "aws_ssm_parameter" "google_client_id" {
-  name       = aws_ssm_parameter.google_client_id.name
-  depends_on = [aws_ssm_parameter.google_client_id]
+data "aws_ssm_parameter" "auth_google_oauth_client_id" {
+  name       = aws_ssm_parameter.auth_google_oauth_client_id.name
+  depends_on = [aws_ssm_parameter.auth_google_oauth_client_id]
 }
 
-data "aws_ssm_parameter" "google_client_secret" {
-  name       = aws_ssm_parameter.google_client_secret.name
-  depends_on = [aws_ssm_parameter.google_client_secret]
+data "aws_ssm_parameter" "auth_google_oauth_client_secret" {
+  name       = aws_ssm_parameter.auth_google_oauth_client_secret.name
+  depends_on = [aws_ssm_parameter.auth_google_oauth_client_secret]
 }
 
-data "aws_ssm_parameter" "stripe_webhook_secret" {
-  name       = aws_ssm_parameter.stripe_webhook_secret.name
-  depends_on = [aws_ssm_parameter.stripe_webhook_secret]
+data "aws_ssm_parameter" "payments_stripe_webhook_secret" {
+  name       = aws_ssm_parameter.payments_stripe_webhook_secret.name
+  depends_on = [aws_ssm_parameter.payments_stripe_webhook_secret]
 }
 
-data "aws_ssm_parameter" "resend_webhook_secret" {
-  name       = aws_ssm_parameter.resend_webhook_secret.name
-  depends_on = [aws_ssm_parameter.resend_webhook_secret]
+data "aws_ssm_parameter" "email_resend_webhook_secret" {
+  name       = aws_ssm_parameter.email_resend_webhook_secret.name
+  depends_on = [aws_ssm_parameter.email_resend_webhook_secret]
 }
 
-data "aws_ssm_parameter" "default_email_sender_address" {
-  name       = aws_ssm_parameter.default_email_sender_address.name
-  depends_on = [aws_ssm_parameter.default_email_sender_address]
+data "aws_ssm_parameter" "email_sender_address" {
+  name       = aws_ssm_parameter.email_sender_address.name
+  depends_on = [aws_ssm_parameter.email_sender_address]
 }
