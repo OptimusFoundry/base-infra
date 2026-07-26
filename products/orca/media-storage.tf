@@ -131,8 +131,16 @@ resource "aws_ssm_parameter" "s3_secret_access_key" {
   value = aws_iam_access_key.media.secret
 }
 
-resource "aws_ssm_parameter" "media_public_url_base" {
-  name  = "/${var.product}/storage/media_public_url_base"
+// Leaf shortened from media_public_url_base to public_url_base to match
+// env-registry's catalog (STORAGE_PUBLIC_URL_BASE). See secrets.tf's header
+// comment on the env-var-rename in general.
+moved {
+  from = aws_ssm_parameter.media_public_url_base
+  to   = aws_ssm_parameter.storage_public_url_base
+}
+
+resource "aws_ssm_parameter" "storage_public_url_base" {
+  name  = "/${var.product}/storage/public_url_base"
   type  = "String"
   value = "https://${aws_s3_bucket.media.id}.s3.${var.aws_region}.amazonaws.com"
 }

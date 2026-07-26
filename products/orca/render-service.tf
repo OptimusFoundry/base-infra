@@ -67,7 +67,7 @@ resource "aws_ecs_task_definition" "render_service" {
 
         { name = "S3_BUCKET", value = aws_s3_bucket.media.id },
         { name = "S3_REGION", value = var.aws_region },
-        { name = "MEDIA_PUBLIC_URL_BASE", value = aws_ssm_parameter.media_public_url_base.value },
+        { name = "MEDIA_PUBLIC_URL_BASE", value = aws_ssm_parameter.storage_public_url_base.value },
 
         # render-service builds its S3 client with no explicit credentials, so
         # it resolves them through the AWS SDK default chain — which reads the

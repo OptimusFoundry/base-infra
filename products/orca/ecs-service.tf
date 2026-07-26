@@ -38,7 +38,7 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "GO_ENV", value = var.environment },
         { name = "GIN_MODE", value = "release" },
-        { name = "SERVER_PORT", value = "80" },
+        { name = "APP_SERVER_PORT", value = "80" },
 
         { name = "DB_HOST", value = data.aws_ssm_parameter.rds_host.value },
         { name = "DB_PORT", value = data.aws_ssm_parameter.rds_port.value },
@@ -46,44 +46,44 @@ resource "aws_ecs_task_definition" "api" {
         { name = "DB_PASSWORD", value = data.aws_ssm_parameter.platform_db_password.value },
         { name = "DB_NAME", value = aws_ssm_parameter.db_name.value },
 
-        { name = "JWT_SECRET", value = data.aws_ssm_parameter.jwt_secret.value },
-        { name = "GOOGLE_CLIENT_ID", value = data.aws_ssm_parameter.google_client_id.value },
-        { name = "GOOGLE_CLIENT_SECRET", value = data.aws_ssm_parameter.google_client_secret.value },
-        { name = "GOOGLE_REDIRECT_URI", value = aws_ssm_parameter.google_redirect_uri.value },
-        { name = "WEBAPP_URI", value = aws_ssm_parameter.web_app_uri.value },
+        { name = "AUTH_JWT_SECRET", value = data.aws_ssm_parameter.auth_jwt_secret.value },
+        { name = "AUTH_GOOGLE_OAUTH_CLIENT_ID", value = data.aws_ssm_parameter.auth_google_oauth_client_id.value },
+        { name = "AUTH_GOOGLE_OAUTH_CLIENT_SECRET", value = data.aws_ssm_parameter.auth_google_oauth_client_secret.value },
+        { name = "AUTH_GOOGLE_REDIRECT_URI", value = aws_ssm_parameter.auth_google_redirect_uri.value },
+        { name = "APP_WEBAPP_URI", value = aws_ssm_parameter.app_webapp_uri.value },
 
-        { name = "STRIPE_SECRET_KEY", value = data.aws_ssm_parameter.platform_stripe_secret_key.value },
-        { name = "STRIPE_WEBHOOK_SECRET", value = data.aws_ssm_parameter.stripe_webhook_secret.value },
+        { name = "PAYMENTS_STRIPE_SECRET_KEY", value = data.aws_ssm_parameter.platform_stripe_secret_key.value },
+        { name = "PAYMENTS_STRIPE_WEBHOOK_SECRET", value = data.aws_ssm_parameter.payments_stripe_webhook_secret.value },
         # Read from the variable rather than the SSM parameter: the parameter is
         # conditional (see secrets.tf) and an empty value is the app's documented
         # "use the Stripe account default" signal.
-        { name = "STRIPE_BILLING_PORTAL_CONFIG_ID", value = var.stripe_billing_portal_config_id },
+        { name = "PAYMENTS_STRIPE_BILLING_PORTAL_CONFIG_ID", value = var.payments_stripe_billing_portal_config_id },
 
-        { name = "RESEND_API_KEY", value = data.aws_ssm_parameter.platform_resend_api_key.value },
-        { name = "RESEND_WEBHOOK_SECRET", value = data.aws_ssm_parameter.resend_webhook_secret.value },
-        { name = "DEFAULT_EMAIL_SENDER_ADDRESS", value = data.aws_ssm_parameter.default_email_sender_address.value },
+        { name = "EMAIL_RESEND_API_KEY", value = data.aws_ssm_parameter.platform_resend_api_key.value },
+        { name = "EMAIL_RESEND_WEBHOOK_SECRET", value = data.aws_ssm_parameter.email_resend_webhook_secret.value },
+        { name = "EMAIL_SENDER_ADDRESS", value = data.aws_ssm_parameter.email_sender_address.value },
 
-        { name = "OPENAI_API_KEY", value = data.aws_ssm_parameter.platform_openai_api_key.value },
-        { name = "GOOGLE_AI_API_KEY", value = data.aws_ssm_parameter.platform_gemini_api_key.value },
-        { name = "FAL_API_KEY", value = data.aws_ssm_parameter.platform_fal_api_key.value },
-        { name = "ELEVENLABS_API_KEY", value = data.aws_ssm_parameter.platform_elevenlabs_api_key.value },
+        { name = "AI_OPENAI_API_KEY", value = data.aws_ssm_parameter.platform_openai_api_key.value },
+        { name = "AI_GEMINI_API_KEY", value = data.aws_ssm_parameter.platform_gemini_api_key.value },
+        { name = "AI_FAL_API_KEY", value = data.aws_ssm_parameter.platform_fal_api_key.value },
+        { name = "AI_ELEVENLABS_API_KEY", value = data.aws_ssm_parameter.platform_elevenlabs_api_key.value },
 
-        # PRODUCT_NAME is stamped on every Stripe object this server creates and
-        # matched against incoming webhook metadata. It is what keeps orca's
+        # APP_PRODUCT_NAME is stamped on every Stripe object this server creates
+        # and matched against incoming webhook metadata. It is what keeps orca's
         # objects distinct from meerkat's and sjocamp's on the shared Stripe
         # account, so it must equal the slug.
-        { name = "PRODUCT_NAME", value = var.product },
+        { name = "APP_PRODUCT_NAME", value = var.product },
 
         { name = "STORAGE_TYPE", value = aws_ssm_parameter.storage_type.value },
-        { name = "S3_BUCKET", value = aws_s3_bucket.media.id },
-        { name = "S3_REGION", value = var.aws_region },
-        { name = "S3_ACCESS_KEY_ID", value = aws_iam_access_key.media.id },
-        { name = "S3_SECRET_ACCESS_KEY", value = aws_iam_access_key.media.secret },
-        { name = "MEDIA_PUBLIC_URL_BASE", value = aws_ssm_parameter.media_public_url_base.value },
+        { name = "STORAGE_S3_BUCKET", value = aws_s3_bucket.media.id },
+        { name = "STORAGE_S3_REGION", value = var.aws_region },
+        { name = "STORAGE_S3_ACCESS_KEY_ID", value = aws_iam_access_key.media.id },
+        { name = "STORAGE_S3_SECRET_ACCESS_KEY", value = aws_iam_access_key.media.secret },
+        { name = "STORAGE_PUBLIC_URL_BASE", value = aws_ssm_parameter.storage_public_url_base.value },
 
-        { name = "KAFKA_BROKERS", value = data.terraform_remote_state.platform.outputs.kafka_bootstrap_servers },
-        { name = "KAFKA_TOPIC", value = "${var.product}.webhook-events" },
-        { name = "KAFKA_CONSUMER_GROUP", value = "${var.product}.webhook-consumers" },
+        { name = "EVENTS_BROKERS", value = data.terraform_remote_state.platform.outputs.kafka_bootstrap_servers },
+        { name = "EVENTS_TOPIC", value = "${var.product}.webhook-events" },
+        { name = "EVENTS_CONSUMER_GROUP", value = "${var.product}.webhook-consumers" },
 
         # Render hand-off topics. These MUST stay byte-identical to the
         # render-service side (RENDER_REQUEST_TOPIC/RENDER_RESULT_TOPIC in
