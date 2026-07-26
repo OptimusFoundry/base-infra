@@ -56,116 +56,116 @@ data "aws_ssm_parameter" "db_name" {
   depends_on = [aws_ssm_parameter.db_name]
 }
 
-data "aws_ssm_parameter" "jwt_secret" {
-  name       = aws_ssm_parameter.jwt_secret.name
-  depends_on = [aws_ssm_parameter.jwt_secret]
+data "aws_ssm_parameter" "auth_jwt_secret" {
+  name       = aws_ssm_parameter.auth_jwt_secret.name
+  depends_on = [aws_ssm_parameter.auth_jwt_secret]
 }
 
-data "aws_ssm_parameter" "google_client_id" {
-  name       = aws_ssm_parameter.google_client_id.name
-  depends_on = [aws_ssm_parameter.google_client_id]
+data "aws_ssm_parameter" "auth_google_oauth_client_id" {
+  name       = aws_ssm_parameter.auth_google_oauth_client_id.name
+  depends_on = [aws_ssm_parameter.auth_google_oauth_client_id]
 }
 
-data "aws_ssm_parameter" "google_client_secret" {
-  name       = aws_ssm_parameter.google_client_secret.name
-  depends_on = [aws_ssm_parameter.google_client_secret]
+data "aws_ssm_parameter" "auth_google_oauth_client_secret" {
+  name       = aws_ssm_parameter.auth_google_oauth_client_secret.name
+  depends_on = [aws_ssm_parameter.auth_google_oauth_client_secret]
 }
 
-data "aws_ssm_parameter" "google_redirect_uri" {
-  name       = aws_ssm_parameter.google_redirect_uri.name
-  depends_on = [aws_ssm_parameter.google_redirect_uri]
+data "aws_ssm_parameter" "auth_google_redirect_uri" {
+  name       = aws_ssm_parameter.auth_google_redirect_uri.name
+  depends_on = [aws_ssm_parameter.auth_google_redirect_uri]
 }
 
-data "aws_ssm_parameter" "web_app_uri" {
-  name       = aws_ssm_parameter.web_app_uri.name
-  depends_on = [aws_ssm_parameter.web_app_uri]
+data "aws_ssm_parameter" "app_webapp_uri" {
+  name       = aws_ssm_parameter.app_webapp_uri.name
+  depends_on = [aws_ssm_parameter.app_webapp_uri]
 }
 
-data "aws_ssm_parameter" "stripe_webhook_secret" {
-  name       = aws_ssm_parameter.stripe_webhook_secret.name
-  depends_on = [aws_ssm_parameter.stripe_webhook_secret]
+data "aws_ssm_parameter" "payments_stripe_webhook_secret" {
+  name       = aws_ssm_parameter.payments_stripe_webhook_secret.name
+  depends_on = [aws_ssm_parameter.payments_stripe_webhook_secret]
 }
 
-data "aws_ssm_parameter" "default_email_sender_address" {
-  name       = aws_ssm_parameter.default_email_sender_address.name
-  depends_on = [aws_ssm_parameter.default_email_sender_address]
+data "aws_ssm_parameter" "email_sender_address" {
+  name       = aws_ssm_parameter.email_sender_address.name
+  depends_on = [aws_ssm_parameter.email_sender_address]
 }
 
 # --- Social platform + integration credentials ---
 
-data "aws_ssm_parameter" "x_api_key" {
-  name       = aws_ssm_parameter.x_api_key.name
-  depends_on = [aws_ssm_parameter.x_api_key]
+data "aws_ssm_parameter" "social_x_api_key" {
+  name       = aws_ssm_parameter.social_x_api_key.name
+  depends_on = [aws_ssm_parameter.social_x_api_key]
 }
 
-data "aws_ssm_parameter" "x_api_secret" {
-  name       = aws_ssm_parameter.x_api_secret.name
-  depends_on = [aws_ssm_parameter.x_api_secret]
+data "aws_ssm_parameter" "social_x_api_secret" {
+  name       = aws_ssm_parameter.social_x_api_secret.name
+  depends_on = [aws_ssm_parameter.social_x_api_secret]
 }
 
-data "aws_ssm_parameter" "linkedin_client_id" {
-  name       = aws_ssm_parameter.linkedin_client_id.name
-  depends_on = [aws_ssm_parameter.linkedin_client_id]
+data "aws_ssm_parameter" "social_linkedin_client_id" {
+  name       = aws_ssm_parameter.social_linkedin_client_id.name
+  depends_on = [aws_ssm_parameter.social_linkedin_client_id]
 }
 
-data "aws_ssm_parameter" "linkedin_client_secret" {
-  name       = aws_ssm_parameter.linkedin_client_secret.name
-  depends_on = [aws_ssm_parameter.linkedin_client_secret]
+data "aws_ssm_parameter" "social_linkedin_client_secret" {
+  name       = aws_ssm_parameter.social_linkedin_client_secret.name
+  depends_on = [aws_ssm_parameter.social_linkedin_client_secret]
 }
 
-data "aws_ssm_parameter" "meta_app_id" {
-  name       = aws_ssm_parameter.meta_app_id.name
-  depends_on = [aws_ssm_parameter.meta_app_id]
+data "aws_ssm_parameter" "social_meta_app_id" {
+  name       = aws_ssm_parameter.social_meta_app_id.name
+  depends_on = [aws_ssm_parameter.social_meta_app_id]
 }
 
-data "aws_ssm_parameter" "meta_app_secret" {
-  name       = aws_ssm_parameter.meta_app_secret.name
-  depends_on = [aws_ssm_parameter.meta_app_secret]
+data "aws_ssm_parameter" "social_meta_app_secret" {
+  name       = aws_ssm_parameter.social_meta_app_secret.name
+  depends_on = [aws_ssm_parameter.social_meta_app_secret]
 }
 
-data "aws_ssm_parameter" "threads_app_id" {
-  name       = aws_ssm_parameter.threads_app_id.name
-  depends_on = [aws_ssm_parameter.threads_app_id]
+data "aws_ssm_parameter" "social_threads_app_id" {
+  name       = aws_ssm_parameter.social_threads_app_id.name
+  depends_on = [aws_ssm_parameter.social_threads_app_id]
 }
 
-data "aws_ssm_parameter" "threads_app_secret" {
-  name       = aws_ssm_parameter.threads_app_secret.name
-  depends_on = [aws_ssm_parameter.threads_app_secret]
+data "aws_ssm_parameter" "social_threads_app_secret" {
+  name       = aws_ssm_parameter.social_threads_app_secret.name
+  depends_on = [aws_ssm_parameter.social_threads_app_secret]
 }
 
-data "aws_ssm_parameter" "threads_access_token" {
-  name       = aws_ssm_parameter.threads_access_token.name
-  depends_on = [aws_ssm_parameter.threads_access_token]
+data "aws_ssm_parameter" "social_threads_access_token" {
+  name       = aws_ssm_parameter.social_threads_access_token.name
+  depends_on = [aws_ssm_parameter.social_threads_access_token]
 }
 
-data "aws_ssm_parameter" "tiktok_client_key" {
-  name       = aws_ssm_parameter.tiktok_client_key.name
-  depends_on = [aws_ssm_parameter.tiktok_client_key]
+data "aws_ssm_parameter" "social_tiktok_client_key" {
+  name       = aws_ssm_parameter.social_tiktok_client_key.name
+  depends_on = [aws_ssm_parameter.social_tiktok_client_key]
 }
 
-data "aws_ssm_parameter" "tiktok_client_secret" {
-  name       = aws_ssm_parameter.tiktok_client_secret.name
-  depends_on = [aws_ssm_parameter.tiktok_client_secret]
+data "aws_ssm_parameter" "social_tiktok_client_secret" {
+  name       = aws_ssm_parameter.social_tiktok_client_secret.name
+  depends_on = [aws_ssm_parameter.social_tiktok_client_secret]
 }
 
-data "aws_ssm_parameter" "pinterest_app_id" {
-  name       = aws_ssm_parameter.pinterest_app_id.name
-  depends_on = [aws_ssm_parameter.pinterest_app_id]
+data "aws_ssm_parameter" "social_pinterest_app_id" {
+  name       = aws_ssm_parameter.social_pinterest_app_id.name
+  depends_on = [aws_ssm_parameter.social_pinterest_app_id]
 }
 
-data "aws_ssm_parameter" "pinterest_app_secret" {
-  name       = aws_ssm_parameter.pinterest_app_secret.name
-  depends_on = [aws_ssm_parameter.pinterest_app_secret]
+data "aws_ssm_parameter" "social_pinterest_app_secret" {
+  name       = aws_ssm_parameter.social_pinterest_app_secret.name
+  depends_on = [aws_ssm_parameter.social_pinterest_app_secret]
 }
 
-data "aws_ssm_parameter" "github_webhook_secret" {
-  name       = aws_ssm_parameter.github_webhook_secret.name
-  depends_on = [aws_ssm_parameter.github_webhook_secret]
+data "aws_ssm_parameter" "social_github_webhook_secret" {
+  name       = aws_ssm_parameter.social_github_webhook_secret.name
+  depends_on = [aws_ssm_parameter.social_github_webhook_secret]
 }
 
-data "aws_ssm_parameter" "oauth_redirect_base" {
-  name       = aws_ssm_parameter.oauth_redirect_base.name
-  depends_on = [aws_ssm_parameter.oauth_redirect_base]
+data "aws_ssm_parameter" "auth_oauth_redirect_base" {
+  name       = aws_ssm_parameter.auth_oauth_redirect_base.name
+  depends_on = [aws_ssm_parameter.auth_oauth_redirect_base]
 }
 
 data "aws_ssm_parameter" "storage_type" {
