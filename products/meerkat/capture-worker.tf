@@ -105,4 +105,13 @@ resource "aws_ecs_service" "capture_worker" {
   desired_count   = 1
   launch_type     = "EC2"
   task_definition = aws_ecs_task_definition.capture_worker.arn
+
+  // Stop-then-start deploys. The shared EC2 instance has no CPU headroom for
+  // a second 512-unit task, so the default 100%/200% rolling deploy
+  // deadlocked (new task unplaceable, old task never drained) from
+  // 2026-08-02 until the old task was stopped by hand on 2026-09-27. This is
+  // a Kafka consumer with nothing routed to it, so a few seconds of downtime
+  // per deploy is fine; queued capture requests wait in Kafka.
+  deployment_minimum_healthy_percent = 0
+  deployment_maximum_percent         = 100
 }
