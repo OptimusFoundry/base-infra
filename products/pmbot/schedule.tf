@@ -1,5 +1,6 @@
-# Daily ingest: 06:00 New York time, one task from the latest ACTIVE revision of the
-# pmbot-daily-ingest family, on the dedicated pmbot cluster via its capacity provider.
+# Daily ingest: 06:00 New York time, one task of the pmbot-daily-ingest revision pmbot-deploy last
+# pointed it at (the family's latest ACTIVE revision until the first CI deploy), on the dedicated
+# pmbot cluster via its capacity provider.
 # One attempt only: the CLI retries 429s itself (T7) and exits 1 on failure, which the
 # alarms in alarms.tf turn into mail.
 
@@ -91,5 +92,12 @@ resource "aws_scheduler_schedule" "daily_ingest" {
     retry_policy {
       maximum_retry_attempts = 0
     }
+  }
+
+  # pmbot-deploy (polymarket-bot CH-008) points the target at each new daily-ingest revision. An apply
+  # must not point it back at the family, whose latest revision may be a Terraform one with the
+  # bootstrap image.
+  lifecycle {
+    ignore_changes = [target[0].ecs_parameters[0].task_definition_arn]
   }
 }

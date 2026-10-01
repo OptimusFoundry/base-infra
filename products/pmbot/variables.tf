@@ -11,8 +11,9 @@ variable "aws_region" {
 }
 
 variable "image_tag" {
-  description = "ECR image tag every task definition runs. No default on purpose: a deploy is the owner setting this to the git SHA CI pushed, then applying a saved plan. A rollback is the previous SHA."
+  description = "Bootstrap image only (CH-008): the tag of each task definition family's first, Terraform-registered revision. polymarket-bot's pmbot-deploy workflow registers every revision the services and the schedule run, and both ignore task-definition drift. Keep it equal to the value in state: changing it replaces all six task definitions for nothing."
   type        = string
+  default     = "4b1cc7a990362d51d4eb0c7fadbae29cb72b7c8d"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", var.image_tag)) && var.image_tag != "latest"
@@ -21,9 +22,9 @@ variable "image_tag" {
 }
 
 variable "sports_s3_mode" {
-  description = "SPORTS_S3 for every task: ro while the Mac recorder and maker still write the canonical prefix, rw after cutover (runbook)."
+  description = "SPORTS_S3 for every task: ro while the Mac recorder and maker still write the canonical prefix, rw after cutover (runbook). Default rw: the CH-007 cutover is done, so a CD apply must never flip the cloud back to ro."
   type        = string
-  default     = "ro"
+  default     = "rw"
 
   validation {
     condition     = contains(["ro", "rw"], var.sports_s3_mode)
@@ -75,4 +76,15 @@ variable "daily_ingest_enabled" {
   description = "Whether the 06:00 America/New_York daily-ingest schedule fires (runbook rollback switch)"
   type        = bool
   default     = true
+}
+
+variable "base_infra_oidc_subject_prefix" {
+  description = "OIDC sub prefix of OptimusFoundry/base-infra, which emits immutable subject claims (GET repos/OptimusFoundry/base-infra/actions/oidc/customization/sub, 2026-10-01). The apply role trusts <prefix>:ref:refs/heads/main, the plan role <prefix>:pull_request."
+  type        = string
+  default     = "repo:OptimusFoundry@167594521/base-infra@789290204"
+
+  validation {
+    condition     = can(regex("^repo:[^:]+$", var.base_infra_oidc_subject_prefix))
+    error_message = "base_infra_oidc_subject_prefix must look like repo:<owner>/<name> (no ref suffix)."
+  }
 }
