@@ -13,7 +13,7 @@ variable "aws_region" {
 variable "image_tag" {
   description = "Bootstrap image only (CH-008): the tag of each task definition family's first, Terraform-registered revision. polymarket-bot's pmbot-deploy workflow registers every revision the services and the schedule run, and both ignore task-definition drift. Keep it equal to the value in state: changing it replaces all six task definitions for nothing."
   type        = string
-  default     = "4b1cc7a990362d51d4eb0c7fadbae29cb72b7c8d"
+  default     = "3ee91acf540d1c6d4f0edd7c251d85ffec593738"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", var.image_tag)) && var.image_tag != "latest"
