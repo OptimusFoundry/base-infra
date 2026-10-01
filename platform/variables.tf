@@ -44,5 +44,9 @@ variable "github_oidc_allowed_subjects" {
     "repo:DMSAVentures/*",
     "repo:SAVentures/*",
     "repo:SAVentures@167594521/*",
+    # AITravel's server deploy (aitravel-server.yml). Deliberately narrower than
+    # the org-wide entries above: one repo, main only, immutable-subject form
+    # (repo created after the cutoff; IDs from `gh api repos/OptimusFoundry/AITravel`).
+    "repo:OptimusFoundry@167594521/AITravel@1312039071:ref:refs/heads/main",
   ]
 }
