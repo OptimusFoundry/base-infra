@@ -81,7 +81,7 @@ variable "daily_ingest_enabled" {
 variable "predictor_enabled" {
   description = "Whether the pmbot-predictor schedule (every 15 minutes, America/New_York) fires, and whether its two alarms exist (EP-030). Default false: the owner enables it by PR after one verified manual run (runbook docs/runbooks/predictor.md)."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "base_infra_oidc_subject_prefix" {
