@@ -16,21 +16,21 @@ no secret and no `POLYMARKET_*` variable exists anywhere in this stack.
 | State | `s3://pmbot-terraform-state/state/terraform.tfstate` (created by hand, versioned) |
 | ECS cluster | `pmbot` (Container Insights enabled) |
 | Capacity provider | `pmbot` (backed by the pmbot ASG, managed scaling and termination protection off), default strategy weight 1, base 1 |
-| ECR repository | `pmbot` (IMMUTABLE, scan on push, keeps the 30 newest images) |
+| ECR repository | `pmbot` (IMMUTABLE, scan on push, keeps the 120 newest images, about 30 pushes of four images, EP-031) |
 | GitHub push role | `pmbot-github-ecr-push` (push to `pmbot` only, trusted for `main` of `var.github_repo`) |
 | GitHub CD roles | `pmbot-github-deploy` (polymarket-bot `main`: ECS deploy only, including re-pointing the daily-ingest and predictor schedules), `pmbot-github-terraform` (base-infra `main`: plan and apply this stack), `pmbot-github-terraform-plan` (base-infra PRs: read-only plan) |
 | Instance role / profile / SG | `pmbot-ecs-instance` (no ingress, all egress, no key pair) |
 | Launch template + ASG | `pmbot-ecs-*`, exactly 1 instance, 100 GB encrypted gp3, IMDSv2 hop limit 1 |
-| Task / execution / scheduler roles | `pmbot-task`, `pmbot-task-execution`, `pmbot-scheduler` |
+| Task / execution / scheduler roles | `pmbot-task` (legacy, EP-031), `pmbot-task-collect`, `pmbot-task-model`, `pmbot-task-paper`, `pmbot-task-research` (one per plane), `pmbot-task-execution`, `pmbot-scheduler` |
 | Log groups | `/ecs/pmbot/<name>` for the 7 tasks, 30 days |
 | Task definitions | `pmbot-<name>` x 7 (bridge, EC2, arm64) |
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll` |
 | Schedules | `pmbot-daily-ingest` (06:00 America/New_York) and `pmbot-predictor` (every 15 minutes, ships DISABLED, EP-030), one attempt each |
-| Alarms | 5 x `pmbot-<name>-not-running`, `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing`, `pmbot-maker-stale-predictions`, and `pmbot-predictor-failed` and `pmbot-predictor-stale` (only while `predictor_enabled`), to `platform-alerts` |
+| Alarms | 5 x `pmbot-<name>-not-running`, `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing`, `pmbot-maker-stale-predictions`, and `pmbot-predictor-failed` and `pmbot-predictor-stale` (only while `predictor_enabled`), and `pmbot-s3-put-forbidden` (EP-031), to `platform-alerts` |
 
 `platform` is read through `terraform_remote_state` for the VPC, the public subnets and the `platform-alerts`
 topic only. The shared `ecs-cluster` is never read or changed, and nothing in `platform/` or another product
-changes: a full plan from an empty state was 47 creates before EP-030 and is 54 after it (56 with `predictor_enabled`), all pmbot-named, and no update, replace or destroy.
+changes: a full plan from an empty state was 47 creates before EP-030, 54 after it (56 with `predictor_enabled`) and is 70 after EP-031 (72 with `predictor_enabled`), all pmbot-named, and no update, replace or destroy.
 
 ## Topology (dedicated cluster, owner decision D1 = b)
 
@@ -68,7 +68,12 @@ changes: a full plan from an empty state was 47 creates before EP-030 and is 54 
     template, the ECR repository, an IAM role or instance profile, a log group or a bucket;
   - any change to a `github_*` role or policy (CD never edits its own permissions);
   - any task definition gaining a `LIVE_ENABLE_*` or `POLYMARKET_*` variable or secret, or `LIVE_TRADING` other
-    than `0`.
+    than `0`;
+  - a task role's inline policy (`pmbot-task-<plane>`) that grants a write outside the plane's S3 prefixes, a wildcard
+    action, any action outside `s3:GetObject`, `s3:ListBucket`, `s3:PutObject`, `s3:AbortMultipartUpload` and the
+    `ssmmessages` channels, any SSM parameter access (only a future `pmbot-task-live` may read `/pmbot/live/*`), or that
+    lacks an unconditional `Deny` of `s3:Delete*` on the bucket and its objects; a managed policy attached to a task
+    role; and a change to the legacy `pmbot-task` policy that adds or alters a statement (it may only shrink).
 
   Creates and in-place updates pass. Tests: `python3 -m unittest discover -s products/pmbot/ci -p "test_*.py" -v`.
 - **No tfvars.** Every value is a default in `variables.tf`, so a local plan equals CI's. Change a value by PR.
@@ -109,6 +114,40 @@ bucket through the shared task role (`DataObjects` already allows `s3:PutObject`
 - **Deploy role.** `pmbot-github-deploy` may `scheduler:GetSchedule` and `UpdateSchedule` on `pmbot-predictor`
   (statement `RepointThePredictorSchedule` in `github-cd.tf`). `plan_guard.py` refuses CD changes to that role, so the
   statement was applied by the owner before the predictor resources were merged.
+
+## Per-plane task roles (EP-031)
+
+Spec: polymarket-bot `docs/superpowers/specs/2026-10-01-pmbot-service-architecture-design.md` section 7; runbook:
+`docs/runbooks/images-iam.md` there. Four roles, one per plane, defined by `local.planes` in `iam.tf`:
+
+| Role | Plane | Writes (key prefixes under `sports/`) | ECS Exec |
+|---|---|---|---|
+| `pmbot-task-collect` | recorder, ingame-capture, xvenue-poller, rewards-poll | `recorder/`, `collectors/` | yes |
+| `pmbot-task-model` | daily-ingest, predictor | `nba/`, `nhl/` (tables, raw, injury_parsed), `predictions/`, `recorder/nba_injury/` (daily-ingest runs the injury fetcher) | yes |
+| `pmbot-task-paper` | maker-paper | `live/maker/journal.paper.*`, `live/prices/`, `live/tape/` (settle caches), `nba/injury_parsed/` (inline path's parse cache, until CHORE-015) | yes |
+| `pmbot-task-research` | on-demand research jobs (none yet) | `experiments/`, `panel/`, `gamma/`, `prices/`, `pretrades/`, `tape/`, `hist/`, the four league dirs, `collectors/xvenue/`, `ledger.jsonl` | no |
+
+Every role reads `sports/*` (`s3:GetObject`) and lists the bucket, writes only `PutObject` and `AbortMultipartUpload` on
+object ARNs under its own prefixes, has an explicit `Deny` of `s3:Delete*`, `s3:PutBucket*` and
+`s3:PutLifecycleConfiguration` on the bucket and its objects, and has **no** SSM parameter access (`EcsExecChannels` is the
+`ssmmessages` debug channel, not parameters). The execution role stays shared. The legacy `pmbot-task` role stays: a
+revision registered before the split, and a rollback to one, still run as it. It lost its SSM parameter statement; delete
+the role by hand after two weeks on the plane roles (the guard refuses deleting an `aws_iam_role`).
+
+- **Roles reach the tasks in two applies.** PR A (this change) only creates the roles, the policies and the alarm. A later PR
+  (`task_role_arn` and `SPORTS_S3_QUEUE=<plane>` per family) registers new revisions; they reach the services with the next
+  `pmbot-deploy`. The queue variable is what stops one plane's drainer from trying (and being denied) another plane's files.
+- **Passing the roles.** `pmbot-github-deploy` registers revisions that name these roles, so its `PassTheTaskRoles`
+  statement lists them. That statement is owner-applied (the guard refuses `github_*`), and must exist before the revisions
+  are registered. The scheduler role (`pmbot-scheduler`) may pass `pmbot-task-model`, which the two scheduled families use.
+- **Alarm.** `pmbot-s3-put-forbidden` fires on the first `s3_put_forbidden` log line of any task: a plane role was denied an
+  upload and `s3sync` parked the marker under `.s3-queue/<plane>/forbidden/`.
+- **Editing a plane's prefixes.** Change `local.planes` in `iam.tf` and `PLANE_WRITE_PREFIXES` in `ci/plan_guard.py` together;
+  `ci/test_plan_guard.py` fails when they differ. Prefixes of two planes are disjoint except the pairs in
+  `ALLOWED_OVERLAPS` (`ci/test_plan_guard.py`), which must list every overlap exactly.
+- **Guard coverage.** The managed-policy check covers `aws_iam_role_policy_attachment` only. Not checked: a policy or
+  attachment whose `role` is unknown at plan time, `managed_policy_arns` or `inline_policy` on `aws_iam_role`,
+  `aws_iam_policy_attachment`, and `aws_iam_role_policies_exclusive`; review those by hand in a PR.
 
 ## Bootstrap (done once, from a workstation with admin credentials)
 
@@ -152,7 +191,7 @@ matches the branch, the PR's plan is clean (the check is green) and the merge ap
 ## Owner actions still open (carried over from CH-007)
 
 1. Confirm the `platform-alerts` email subscription if it has not been confirmed yet.
-2. Nothing goes under `/pmbot/*` in SSM until the owner's explicit live go. The task role can already read it.
+2. Nothing goes under `/pmbot/*` in SSM until the owner's explicit live go. No task role can read it since EP-031.
 3. Follow the runbook: one manual daily-ingest run, the 24 h checklist, then cutover (`sports_s3_mode = "rw"` by a
    PR changing the default, Mac copies stopped, instance replaced, then a `pmbot-deploy` run with the running SHA).
 
@@ -182,9 +221,9 @@ and Phase B applied the full stack with that tag. That tag is now `var.image_tag
 | 100 GB gp3 root volume | about $8 |
 | Public IPv4 address | about $3.70 |
 | Container Insights (single instance, 5 services) | about $5 to $10 |
-| Alarms (8, or 10 with the predictor enabled) and five custom metrics | about $2.50 |
+| Alarms (9, or 11 with the predictor enabled) and six custom metrics | about $3 |
 | Log ingestion and storage, 30 days | about $0.50 per GB ingested |
-| ECR storage, 30 images | about $1 to $3 |
+| ECR storage, 120 images | about $1 to $4 |
 | **Total, before logs and S3 data** | **about $68 to $75** |
 
 S3 storage and requests for the data bucket are separate and already exist. Check the AWS pricing pages before

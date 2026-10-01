@@ -189,3 +189,36 @@ resource "aws_cloudwatch_metric_alarm" "maker_stale_predictions" {
   alarm_actions = [local.alerts_topic_arn]
   ok_actions    = [local.alerts_topic_arn]
 }
+
+# EP-031: sports.core.s3sync parks an upload marker its plane's role was denied and logs s3_put_forbidden once
+# per marker (core/s3sync.py S3Forbidden). One filter per task log group, one shared metric. Always on: it is
+# silent until a plane role lacks a prefix its service writes, and that is exactly when to hear about it.
+resource "aws_cloudwatch_log_metric_filter" "s3_put_forbidden" {
+  for_each = local.all_tasks
+
+  name           = "pmbot-s3-put-forbidden-${each.key}"
+  log_group_name = aws_cloudwatch_log_group.svc[each.key].name
+  pattern        = "\"s3_put_forbidden\""
+
+  metric_transformation {
+    name      = "S3PutForbidden"
+    namespace = "pmbot"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "s3_put_forbidden" {
+  alarm_name          = "pmbot-s3-put-forbidden"
+  alarm_description   = "A pmbot task was denied an S3 upload (s3_put_forbidden): its plane role lacks the prefix. The marker is parked under .s3-queue/<plane>/forbidden/. Runbook: docs/runbooks/images-iam.md."
+  namespace           = "pmbot"
+  metric_name         = "S3PutForbidden"
+  statistic           = "Sum"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  period              = 300
+  evaluation_periods  = 1
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [local.alerts_topic_arn]
+  ok_actions    = [local.alerts_topic_arn]
+}
