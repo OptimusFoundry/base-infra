@@ -18,7 +18,7 @@ no secret and no `POLYMARKET_*` variable exists anywhere in this stack.
 | Capacity provider | `pmbot` (backed by the pmbot ASG, managed scaling and termination protection off), default strategy weight 1, base 1 |
 | ECR repository | `pmbot` (IMMUTABLE, scan on push, keeps the 30 newest images) |
 | GitHub push role | `pmbot-github-ecr-push` (push to `pmbot` only, trusted for `main` of `var.github_repo`) |
-| GitHub CD roles | `pmbot-github-deploy` (polymarket-bot `main`: ECS deploy only), `pmbot-github-terraform` (base-infra `main`: plan and apply this stack), `pmbot-github-terraform-plan` (base-infra PRs: read-only plan) |
+| GitHub CD roles | `pmbot-github-deploy` (polymarket-bot `main`: ECS deploy only, including re-pointing the daily-ingest and predictor schedules), `pmbot-github-terraform` (base-infra `main`: plan and apply this stack), `pmbot-github-terraform-plan` (base-infra PRs: read-only plan) |
 | Instance role / profile / SG | `pmbot-ecs-instance` (no ingress, all egress, no key pair) |
 | Launch template + ASG | `pmbot-ecs-*`, exactly 1 instance, 100 GB encrypted gp3, IMDSv2 hop limit 1 |
 | Task / execution / scheduler roles | `pmbot-task`, `pmbot-task-execution`, `pmbot-scheduler` |
@@ -120,7 +120,8 @@ is `var.base_infra_oidc_subject_prefix` plus `:ref:refs/heads/main` (apply) or `
 
 Plan files hold full variable values and are never committed (`.gitignore` has `tfplan*`). Never run
 `terraform apply` without a saved plan file. A CD-role change merged to `main` fails its CI apply at the guard;
-the owner runs this from `main` afterwards.
+the owner runs this from `main` afterwards. The same steps work from the PR branch before merging: the state then
+matches the branch, the PR's plan is clean (the check is green) and the merge applies nothing.
 
 ## Owner actions still open (carried over from CH-007)
 

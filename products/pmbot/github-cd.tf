@@ -2,7 +2,8 @@
 # shared provider read in github-oidc.tf (data.aws_iam_openid_connect_provider.github); no secret exists.
 #
 #   pmbot-github-deploy          polymarket-bot main: describe + register task definitions, update the
-#                                five pmbot services, re-point the daily-ingest schedule. Nothing else.
+#                                five pmbot services, re-point the daily-ingest and predictor schedules.
+#                                Nothing else.
 #   pmbot-github-terraform       base-infra main: plan and apply this stack (pmbot-named resources only).
 #   pmbot-github-terraform-plan  base-infra pull requests: read-only plan. A pull_request run uses the
 #                                PR's own workflow file, so this role must not be able to write anything.
@@ -366,6 +367,14 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect   = "Allow"
         Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
         Resource = aws_scheduler_schedule.daily_ingest.arn
+      },
+      {
+        # EP-030: pmbot-deploy re-points the predictor schedule the same way. A literal ARN, not
+        # aws_scheduler_schedule.predictor.arn, so this owner-applied change needs no schedule to exist yet.
+        Sid      = "RepointThePredictorSchedule"
+        Effect   = "Allow"
+        Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
+        Resource = "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/default/pmbot-predictor"
       },
     ]
   })
