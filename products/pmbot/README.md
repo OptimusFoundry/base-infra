@@ -18,6 +18,7 @@ no secret and no `POLYMARKET_*` variable exists anywhere in this stack.
 | Capacity provider | `pmbot` (backed by the pmbot ASG, managed scaling and termination protection off), default strategy weight 1, base 1 |
 | ECR repository | `pmbot` (IMMUTABLE, scan on push, keeps the 30 newest images) |
 | GitHub push role | `pmbot-github-ecr-push` (push to `pmbot` only, trusted for `main` of `var.github_repo`) |
+| GitHub CD roles | `pmbot-github-deploy` (polymarket-bot `main`: ECS deploy only), `pmbot-github-terraform` (base-infra `main`: plan and apply this stack), `pmbot-github-terraform-plan` (base-infra PRs: read-only plan) |
 | Instance role / profile / SG | `pmbot-ecs-instance` (no ingress, all egress, no key pair) |
 | Launch template + ASG | `pmbot-ecs-*`, exactly 1 instance, 100 GB encrypted gp3, IMDSv2 hop limit 1 |
 | Task / execution / scheduler roles | `pmbot-task`, `pmbot-task-execution`, `pmbot-scheduler` |
@@ -43,67 +44,101 @@ changes: a full plan from an empty state is 47 creates, all pmbot-named, and no 
   collectors and the maker write there, and `sports.core.s3sync` uploads to `s3://polymarket-bot-data-339713122183`.
 - Services deploy stop-then-start (`deployment_minimum_healthy_percent = 0`, `maximum = 100`), so the old task
   gets SIGTERM and 120 s before the new one starts. Two recorders, or two makers on one `/data`, never run at once.
-- Images are pinned by git SHA (`var.image_tag`, no default, `latest` refused). A deploy is a new tag and an apply
-  of a saved plan; a rollback is the previous tag.
+- Images are pinned by git SHA, but Terraform no longer deploys them (CH-008). polymarket-bot's `pmbot-deploy`
+  workflow registers every revision the services and the schedule run. `aws_ecs_service.svc` ignores
+  `task_definition` and the schedule ignores its target's `task_definition_arn`, so a plan after an app deploy is
+  clean. `var.image_tag` (default: the CH-007 bootstrap SHA, the value in state) only seeds a family's first
+  revision. Never change it: that replaces all six task definitions for nothing.
 - Liveness alarms use `ECS/ContainerInsights` `RunningTaskCount` (`ClusterName = pmbot`), below 1 for 5 x 60 s,
   missing data counted as breaching.
 
-## Two-phase apply
+## Continuous delivery (CH-008, no approval gate)
 
-The repository must exist before CI can push an image, and the services need an image that exists.
+| What | Trigger | Role (GitHub OIDC, no secrets) | Does |
+|---|---|---|---|
+| App deploy | polymarket-bot `pmbot-image` succeeds on `main` (`pmbot-deploy.yml`, `workflow_run`), or a manual dispatch with an image tag | `pmbot-github-deploy` | a new revision of each of the 6 families with only the image swapped, `update-service` x5, wait until stable, re-point the schedule; rolls the services back on failure |
+| Plan | base-infra PR touching `products/pmbot/**` (`.github/workflows/pmbot-terraform.yml`, job `plan`) | `pmbot-github-terraform-plan` (read-only; plans with `-lock=false`) | `fmt -check`, `validate`, `plan`, guard preview, PR comment |
+| Apply | push to base-infra `main` touching `products/pmbot/**` (job `apply`) | `pmbot-github-terraform` | `plan -out`, `ci/plan_guard.py`, `apply` of that saved plan |
 
-    # Phase A (owner): ECR and the GitHub push role only
-    terraform -chdir=products/pmbot apply tfplan-phase-a
+- **Scope.** CI plans and applies only `products/pmbot`. Three things keep it there: the workflow's path filters, its
+  `working-directory`, and the roles' permissions. The roles can touch pmbot-named or `Product=pmbot`-tagged
+  resources, objects in `pmbot-terraform-state`, and read only the platform state object.
+- **The guard** (`ci/plan_guard.py`) refuses, so nothing is applied and the run fails:
+  - any delete or replace of the cluster, its capacity provider and provider list, a service, the ASG, the launch
+    template, the ECR repository, an IAM role or instance profile, a log group or a bucket;
+  - any change to a `github_*` role or policy (CD never edits its own permissions);
+  - any task definition gaining a `LIVE_ENABLE_*` or `POLYMARKET_*` variable or secret, or `LIVE_TRADING` other
+    than `0`.
 
-Then GitHub setup (runbook, first deploy): repository variables `AWS_REGION=us-east-1`,
-`PMBOT_ECR_REPOSITORY=pmbot`, `PMBOT_ECR_PUSH_ROLE_ARN=<role arn>`, push `main`, and confirm CI pushed `:<sha>`.
-The role ARN is the `github_push_role_arn` output; if it comes back empty, use
+  Creates and in-place updates pass. Tests: `python3 -m unittest discover -s products/pmbot/ci -p "test_*.py" -v`.
+- **No tfvars.** Every value is a default in `variables.tf`, so a local plan equals CI's. Change a value by PR.
+- **Locking.** The backend uses S3 native locking (`use_lockfile = true`, `state/terraform.tfstate.tflock`).
+- **Task-definition edits.** An edit applied here does not reach the services until polymarket-bot's
+  `pmbot-deploy` runs, because the services ignore `task_definition`. The guard's report lists such edits. Roll one out
+  with:
 
-    aws iam get-role --role-name pmbot-github-ecr-push --query Role.Arn --output text
+      gh workflow run pmbot-deploy.yml --repo OptimusFoundry/polymarket-bot --ref main -f image_tag=<sha running now>
 
-Phase B: set `image_tag = "<sha>"` in `products/pmbot/terraform.tfvars` (gitignored), plan, read the plan, apply it.
+- **AMI drift** (the SSM recommended-image pointer) shows up as an in-place launch template and ASG update in the
+  next plan, and is applied on the next merge. It never replaces the running instance (no `instance_refresh`).
+- **Pause CD:** `gh workflow disable pmbot-terraform.yml --repo OptimusFoundry/base-infra`, or the same for
+  `pmbot-deploy.yml` in polymarket-bot.
 
-    terraform -chdir=products/pmbot plan -out=tfplan-phase-b
-    terraform -chdir=products/pmbot apply tfplan-phase-b
+## Bootstrap (done once, from a workstation with admin credentials)
 
-Plan files hold full variable values and are never committed (`.gitignore` has `tfplan*`). Delete each one after
-applying it. Never run `terraform apply` without a saved plan file.
+The CD roles cannot create themselves. Run this once, from the repo root, on the branch that adds `github-cd.tf`:
 
-## Pending plans
+    terraform -chdir=products/pmbot init -reconfigure -input=false
+    terraform -chdir=products/pmbot plan -input=false -out=tfplan-ch008-bootstrap   # 6 to add: the github_* roles and policies
+    terraform -chdir=products/pmbot show -json tfplan-ch008-bootstrap > /tmp/ch008-plan.json
+    python3 products/pmbot/ci/plan_guard.py /tmp/ch008-plan.json   # exit 1: exactly the 6 CD-role creates, owner-applied by design
+    terraform -chdir=products/pmbot apply tfplan-ch008-bootstrap
+    rm products/pmbot/tfplan-ch008-bootstrap /tmp/ch008-plan.json
+    rm products/pmbot/terraform.tfvars          # after checking it only held image_tag and sports_s3_mode = the defaults
+    terraform -chdir=products/pmbot plan -input=false -detailed-exitcode      # 0: no changes
 
-`tfplan-phase-a` and `tfplan-review` are NOT yet saved: `terraform init` with the real backend fails with
-`S3 bucket "pmbot-terraform-state" does not exist` (checked 2026-09-30). Once the owner has created the bucket
-(Owner action 1) they are produced with:
+Then set the repository variables (role ARNs are not secrets):
 
-    terraform -chdir=products/pmbot init -reconfigure
-    terraform -chdir=products/pmbot plan -input=false -var image_tag=bootstrap-unused -target=aws_ecr_repository.pmbot -target=aws_ecr_lifecycle_policy.pmbot -target=aws_iam_role.github_push -target=aws_iam_role_policy.github_push -out=tfplan-phase-a
-    terraform -chdir=products/pmbot plan -input=false -var image_tag=review-placeholder -out=tfplan-review
+| Repository | Variable | Value |
+|---|---|---|
+| `OptimusFoundry/polymarket-bot` | `PMBOT_DEPLOY_ROLE_ARN` | output `github_deploy_role_arn` |
+| `OptimusFoundry/base-infra` | `AWS_REGION` | `us-east-1` |
+| `OptimusFoundry/base-infra` | `PMBOT_TF_APPLY_ROLE_ARN` | output `github_terraform_role_arn` |
+| `OptimusFoundry/base-infra` | `PMBOT_TF_PLAN_ROLE_ARN` | output `github_terraform_plan_role_arn` |
 
-Expected: Phase A `Plan: 4 to add, 0 to change, 0 to destroy.` (ECR repository, lifecycle policy, push role, push
-policy). The review plan is `Plan: 47 to add, 0 to change, 0 to destroy.` and exists only to be read: its
-`image_tag` is a placeholder, so it is not deployable. Before the bucket existed, the same plans were run from a
-scratch copy with a local backend and gave exactly these counts; the scope proof (all creates, all pmbot-named)
-and the diff against `sports/ops/services.py` passed on that plan.
+The trust policies use the immutable OIDC subject claims both repositories emit (`gh api
+repos/<owner>/<repo>/actions/oidc/customization/sub`). polymarket-bot `main` is `var.github_oidc_subject`; base-infra
+is `var.base_infra_oidc_subject_prefix` plus `:ref:refs/heads/main` (apply) or `:pull_request` (plan).
 
-## Owner actions, in order
+## Manual apply (the guard refused, or a change to the CD roles)
 
-1. Create the state bucket and enable versioning:
+    terraform -chdir=products/pmbot init -reconfigure -input=false
+    terraform -chdir=products/pmbot plan -out=tfplan-manual
+    terraform -chdir=products/pmbot show tfplan-manual      # read it: "must be replaced" and "destroyed" first
+    terraform -chdir=products/pmbot apply tfplan-manual
+    rm products/pmbot/tfplan-manual
 
-       aws s3 mb s3://pmbot-terraform-state --region us-east-1
-       aws s3api put-bucket-versioning --bucket pmbot-terraform-state --versioning-configuration Status=Enabled
+Plan files hold full variable values and are never committed (`.gitignore` has `tfplan*`). Never run
+`terraform apply` without a saved plan file. A CD-role change merged to `main` fails its CI apply at the guard;
+the owner runs this from `main` afterwards.
 
-2. Save the two plans (above), read `tfplan-phase-a`, then apply it.
-3. GitHub repository variables and the first CI push.
-4. Phase B: plan with the pushed SHA, review, apply.
-5. Confirm the `platform-alerts` email subscription if it has not been confirmed yet.
-6. Nothing goes under `/pmbot/*` in SSM until the owner's explicit live go. The task role can already read it.
-7. Follow the runbook: one manual daily-ingest run, the 24 h checklist, then cutover (`sports_s3_mode = "rw"`,
-   Mac copies stopped, instance replaced).
+## Owner actions still open (carried over from CH-007)
+
+1. Confirm the `platform-alerts` email subscription if it has not been confirmed yet.
+2. Nothing goes under `/pmbot/*` in SSM until the owner's explicit live go. The task role can already read it.
+3. Follow the runbook: one manual daily-ingest run, the 24 h checklist, then cutover (`sports_s3_mode = "rw"` by a
+   PR changing the default, Mac copies stopped, instance replaced, then a `pmbot-deploy` run with the running SHA).
+
+## History: first deploy (CH-007, done 2026-10-01)
+
+Phase A applied ECR and the push role, CI pushed the first image (`4b1cc7a990362d51d4eb0c7fadbae29cb72b7c8d`),
+and Phase B applied the full stack with that tag. That tag is now `var.image_tag`'s default.
 
 ## Notes for the owner's decisions
 
-- **D3, `sports_s3_mode`.** Default `ro`: the Mac recorder and maker still write the canonical prefix. Flip to `rw`
-  only after the Mac copies are stopped, then replace the instance so `/data` starts empty.
+- **D3, `sports_s3_mode`.** Default `rw` since the CH-007 cutover: the Mac recorder and maker copies are stopped. A CD apply must
+  never flip it back to `ro`. The flip was done by a PR changing the default in `variables.tf`, then a `pmbot-deploy`
+  run with the running SHA (polymarket-bot runbook, Cutover step 4).
 - **Replacing the instance.** A plan never replaces it (the ASG has no `instance_refresh`). Terminate the instance in
   the ASG (output `asg_name`) only after `s3sync backfill` and the paper-journal carry-over in the runbook.
 - **AMI drift.** The AMI id comes from the SSM recommended-image pointer, so a later plan may show a new launch

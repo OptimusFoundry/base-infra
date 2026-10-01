@@ -202,8 +202,11 @@ resource "aws_ecs_service" "svc" {
   # The provider must be attached to the cluster before a service can name it.
   depends_on = [aws_ecs_cluster_capacity_providers.pmbot]
 
+  # desired_count: a manual kill switch (`--desired-count 0`, runbook) survives an apply.
+  # task_definition: polymarket-bot's pmbot-deploy workflow owns the running revision (CH-008), so an
+  # apply never moves a service back to Terraform's bootstrap-image revision.
   lifecycle {
-    ignore_changes = [desired_count]
+    ignore_changes = [desired_count, task_definition]
   }
 }
 
