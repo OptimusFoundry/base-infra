@@ -88,6 +88,22 @@ locals {
     "predictor"    = local.predictor
   })
 
+  # The plane each task runs as (EP-031): its task role is aws_iam_role.plane[<plane>] (iam.tf local.planes) and
+  # its S3 upload queue is SPORTS_S3_QUEUE=<plane> (sports.core.s3sync). The role and the queue change in the
+  # same revision on purpose: a plane role cannot upload another plane's files, so a drainer that shared the
+  # root queue would be denied on them. Keys == local.all_tasks (a missing key fails the plan) ==
+  # sports/ops/services.py SERVICES | SCHEDULED; polymarket-bot sports/ops/images.py FAMILY_TARGET is the
+  # image-side twin of this map.
+  family_plane = {
+    recorder         = "collect"
+    "ingame-capture" = "collect"
+    "xvenue-poller"  = "collect"
+    "rewards-poll"   = "collect"
+    "daily-ingest"   = "model"
+    predictor        = "model"
+    "maker-paper"    = "paper"
+  }
+
   # One container per task definition; the container is named after the service.
   container_definitions = {
     for name, task in local.all_tasks : name => [{
@@ -111,7 +127,7 @@ locals {
       }]
 
       environment = [
-        for key, value in merge(local.common_env, task.extra_env) : { name = key, value = value }
+        for key, value in merge(local.common_env, { SPORTS_S3_QUEUE = local.family_plane[name] }, task.extra_env) : { name = key, value = value }
       ]
 
       logConfiguration = {
@@ -140,7 +156,7 @@ resource "aws_ecs_task_definition" "svc" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  task_role_arn            = aws_iam_role.plane[local.family_plane[each.key]].arn
   container_definitions    = jsonencode(local.container_definitions[each.key])
 
   # Hosts are Graviton (t4g); the image is built linux/arm64 in CI.
@@ -167,7 +183,7 @@ resource "aws_ecs_task_definition" "daily_ingest" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  task_role_arn            = aws_iam_role.plane[local.family_plane["daily-ingest"]].arn
   container_definitions    = jsonencode(local.container_definitions["daily-ingest"])
 
   runtime_platform {
@@ -191,7 +207,7 @@ resource "aws_ecs_task_definition" "predictor" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  task_role_arn            = aws_iam_role.plane[local.family_plane["predictor"]].arn
   container_definitions    = jsonencode(local.container_definitions["predictor"])
 
   runtime_platform {

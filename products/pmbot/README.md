@@ -134,9 +134,14 @@ object ARNs under its own prefixes, has an explicit `Deny` of `s3:Delete*`, `s3:
 revision registered before the split, and a rollback to one, still run as it. It lost its SSM parameter statement; delete
 the role by hand after two weeks on the plane roles (the guard refuses deleting an `aws_iam_role`).
 
-- **Roles reach the tasks in two applies.** PR A (this change) only creates the roles, the policies and the alarm. A later PR
-  (`task_role_arn` and `SPORTS_S3_QUEUE=<plane>` per family) registers new revisions; they reach the services with the next
-  `pmbot-deploy`. The queue variable is what stops one plane's drainer from trying (and being denied) another plane's files.
+- **Roles reach the tasks in two applies.** The first PR created the roles, the policies and the alarm. The second
+  (`local.family_plane` in `services.tf`) sets every family's `task_role_arn` to its plane role and its environment
+  `SPORTS_S3_QUEUE=<plane>` in the same revision, and registers new revisions; they reach the services with the next
+  `pmbot-deploy` at the running SHA. The queue variable is what stops one plane's drainer from trying (and being denied)
+  another plane's files. **Never deploy an image older than the `SPORTS_S3_QUEUE` support (polymarket-bot EP-031-T4) under
+  these revisions:** it would drain the shared queue under a plane role and be denied. To go back to such an image, revert
+  this change first. Rolling back to a previous revision (`update-service --task-definition <arn>`) is always safe: those
+  revisions carry the legacy role and no queue variable.
 - **Passing the roles.** `pmbot-github-deploy` registers revisions that name these roles, so its `PassTheTaskRoles`
   statement lists them. That statement is owner-applied (the guard refuses `github_*`), and must exist before the revisions
   are registered. The scheduler role (`pmbot-scheduler`) may pass `pmbot-task-model`, which the two scheduled families use.
