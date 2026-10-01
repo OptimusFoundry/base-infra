@@ -1,8 +1,8 @@
 locals {
   # Same string as aws_ecr_repository.pmbot.repository_url, built from known values so the
   # review plan can show the container definitions before the repository exists.
-  registry = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
-  image    = "${local.registry}/${aws_ecr_repository.pmbot.name}:${var.image_tag}"
+  registry   = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+  image_repo = "${local.registry}/${aws_ecr_repository.pmbot.name}"
 
   # Environment contract shared by every task (head: Shared interfaces). No credential, no
   # POLYMARKET_*, no LIVE_ENABLE_*: the AWS SDK gets the task role through the ECS agent.
@@ -104,11 +104,26 @@ locals {
     "maker-paper"    = "paper"
   }
 
+  # The image target each task runs (EP-031): CI pushes <sha>-collect, <sha>-model, <sha>-trade and
+  # <sha>-research (plus <sha> = the research image). A family's Terraform-registered revision runs
+  # ${var.image_tag}-<target>, and pmbot-deploy keeps that target when it swaps the sha (ecs_deploy.py
+  # target_tag). Twin of polymarket-bot sports/ops/images.py FAMILY_TARGET (its test pins that map to
+  # ecs_deploy.py); ci/test_services_maps.py pins this one to family_plane.
+  family_target = {
+    recorder         = "collect"
+    "ingame-capture" = "collect"
+    "xvenue-poller"  = "collect"
+    "rewards-poll"   = "collect"
+    "daily-ingest"   = "model"
+    predictor        = "model"
+    "maker-paper"    = "trade"
+  }
+
   # One container per task definition; the container is named after the service.
   container_definitions = {
     for name, task in local.all_tasks : name => [{
       name              = name
-      image             = local.image
+      image             = "${local.image_repo}:${var.image_tag}-${local.family_target[name]}"
       command           = task.command
       essential         = true
       cpu               = task.cpu

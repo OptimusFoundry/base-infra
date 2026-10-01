@@ -47,8 +47,9 @@ changes: a full plan from an empty state was 47 creates before EP-030, 54 after 
 - Images are pinned by git SHA, but Terraform no longer deploys them (CH-008). polymarket-bot's `pmbot-deploy`
   workflow registers every revision the services and the schedule run. `aws_ecs_service.svc` ignores
   `task_definition` and the schedule ignores its target's `task_definition_arn`, so a plan after an app deploy is
-  clean. `var.image_tag` (default: the CH-007 bootstrap SHA, the value in state) only seeds a family's first
-  revision. Never change it: that replaces all six task definitions for nothing.
+  clean. `var.image_tag` only seeds a family's first revision (and, since EP-031, names the SHA whose `-<target>` images
+  the families run). Changing it replaces every task definition with a new revision and moves nothing running: bump it only
+  to a SHA whose five tags exist in ECR.
 - Liveness alarms use `ECS/ContainerInsights` `RunningTaskCount` (`ClusterName = pmbot`), below 1 for 5 x 60 s,
   missing data counted as breaching.
 
@@ -134,6 +135,11 @@ object ARNs under its own prefixes, has an explicit `Deny` of `s3:Delete*`, `s3:
 revision registered before the split, and a rollback to one, still run as it. It lost its SSM parameter statement; delete
 the role by hand after two weeks on the plane roles (the guard refuses deleting an `aws_iam_role`).
 
+- **Images are per target (EP-031).** CI pushes `<sha>-collect`, `<sha>-model`, `<sha>-trade` and `<sha>-research` (and `<sha>`,
+  the research image). `local.family_target` in `services.tf` gives each family its target, and a family's
+  Terraform-registered revision runs `${var.image_tag}-<target>`. `pmbot-deploy` keeps the target of the latest revision and
+  swaps only the SHA, so a later deploy of any SHA stays on the family's image. `var.image_tag` must be a SHA whose five tags
+  exist in ECR (`aws ecr describe-images`); `ci/test_services_maps.py` refuses the pre-split bootstrap SHA.
 - **Roles reach the tasks in two applies.** The first PR created the roles, the policies and the alarm. The second
   (`local.family_plane` in `services.tf`) sets every family's `task_role_arn` to its plane role and its environment
   `SPORTS_S3_QUEUE=<plane>` in the same revision, and registers new revisions; they reach the services with the next
