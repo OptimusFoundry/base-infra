@@ -25,7 +25,7 @@ Never `terraform apply` without a saved plan file — it re-plans at apply time,
 
 Establish a clean baseline (`-detailed-exitcode` → 0) before editing, or your diff is indistinguishable from pre-existing drift.
 
-There is no test suite and no CI for Terraform in this repo. The `.github/workflows/webapp.yml` referenced in the docs lives in the application repo, not here.
+There is no test suite and no CI for Terraform in this repo, with one exception: `products/pmbot` plans on PRs and applies on merge to `main` through `.github/workflows/pmbot-terraform.yml`, behind `products/pmbot/ci/plan_guard.py` and its unittest tests (polymarket-bot CH-008; see `products/pmbot/README.md`). The `.github/workflows/webapp.yml` referenced in the docs lives in the application repo, not here.
 
 ## Stack topology
 
