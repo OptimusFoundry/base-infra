@@ -27,6 +27,8 @@ no secret and no `POLYMARKET_*` variable exists anywhere in this stack.
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll` |
 | Schedules | `pmbot-daily-ingest` (06:00 America/New_York) and `pmbot-predictor` (every 15 minutes, ships DISABLED, EP-030), one attempt each |
 | Alarms | 5 x `pmbot-<name>-not-running`, `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing`, `pmbot-maker-stale-predictions`, and `pmbot-predictor-failed` and `pmbot-predictor-stale` (only while `predictor_enabled`), and `pmbot-s3-put-forbidden` (EP-031), to `platform-alerts` |
+| Status site (CH-009) | `pmbot-site-<account>` bucket (private: OAC only, public access blocked, TLS only), CloudFront distribution for `pmbot.protoapp.xyz` on the platform wildcard certificate; DNS record in `products/pmbot/dns` |
+| Status service (CH-009) | `pmbot-status` (task definition, service created at desired 0, log group `/ecs/pmbot/status`, task role `pmbot-status`: `s3:PutObject` on `status.json` only) |
 
 `platform` is read through `terraform_remote_state` for the VPC, the public subnets and the `platform-alerts`
 topic only. The shared `ecs-cluster` is never read or changed, and nothing in `platform/` or another product
@@ -153,6 +155,41 @@ the role by hand after two weeks on the plane roles (the guard refuses deleting 
 - **Guard coverage.** The managed-policy check covers `aws_iam_role_policy_attachment` only. Not checked: a policy or
   attachment whose `role` is unknown at plan time, `managed_policy_arns` or `inline_policy` on `aws_iam_role`,
   `aws_iam_policy_attachment`, and `aws_iam_role_policies_exclusive`; review those by hand in a PR.
+
+## Status page (CH-009)
+
+https://pmbot.protoapp.xyz is a static page (polymarket-bot `web/pmbot-status`) served from the private bucket
+`pmbot-site-<account>` through CloudFront (OAC; `status.tf`). The `pmbot-status` service (`python -m
+sports.ops.status_page loop`, collect image, `/data` read-only, `SPORTS_S3=off`) writes `status.json` every 60 s;
+CloudFront never caches that path. polymarket-bot's `pmbot-site.yml` uploads `index.html`, `scoreboard.json` and
+`assets/` as `pmbot-github-deploy` and invalidates the two revalidated paths. Runbook: polymarket-bot
+`docs/runbooks/cloud-deploy.md`, "Public status page".
+
+- **IAM.** `pmbot-status` may `PutObject` `status.json` and open ECS Exec channels, nothing else. The deploy role may
+  write `index.html`, `scoreboard.json` and `assets/*` (never `status.json`), list the bucket, invalidate the
+  distribution and pass `pmbot-status` to ECS. The plan and apply roles read the bucket and CloudFront; the apply role
+  may edit the bucket and the `Product=pmbot` distribution. `ci/test_status_site.py` pins all of this.
+- **First apply is the owner's.** The change edits the three `github_*` policies, so `plan_guard.py` refuses it in CI
+  (by design). Apply it from a saved plan (Manual apply) from the PR branch, then merge: the PR's plan is then clean.
+  Expected: 11 to add, 3 to change (the `github_*` policies), 0 to destroy.
+- **Then, in order:** the DNS record (`products/pmbot/dns`, below); the repository variables
+  `PMBOT_SITE_BUCKET` = output `site_bucket_name` and `PMBOT_SITE_DISTRIBUTION_ID` = output `site_distribution_id`
+  on `OptimusFoundry/polymarket-bot`; a `pmbot-deploy` run, which registers `pmbot-status:2` with the current
+  `<sha>-collect` image; finally `aws ecs update-service --cluster pmbot --service pmbot-status --desired-count 1`.
+- **Parked at 0 on purpose.** The Terraform-registered revision runs `${var.image_tag}-collect`, the bootstrap image,
+  which has no status writer. Like every family, the running revision belongs to `pmbot-deploy`
+  (`ignore_changes = [desired_count, task_definition]`).
+- **DNS record.** `products/pmbot/dns/` is its own root (state key `dns/terraform.tfstate` in `pmbot-terraform-state`):
+  one `cloudflare_dns_record` `pmbot.protoapp.xyz CNAME <distribution>.cloudfront.net`, not proxied (CloudFront
+  terminates TLS on the platform wildcard certificate). It reads the Cloudflare global key from SSM, so CD never
+  plans it; the owner applies it once after the distribution exists:
+
+      terraform -chdir=products/pmbot/dns init -input=false
+      TF_VAR_cloudflare_email=<Cloudflare email> terraform -chdir=products/pmbot/dns plan -input=false -out=tfplan-dns
+      terraform -chdir=products/pmbot/dns apply tfplan-dns && rm products/pmbot/dns/tfplan-dns
+
+  Expected: 1 to add. Check: `dig +short pmbot.protoapp.xyz CNAME` names the distribution, and
+  `curl -sSI https://pmbot.protoapp.xyz` answers `HTTP/2 200` once the page is uploaded.
 
 ## Bootstrap (done once, from a workstation with admin credentials)
 

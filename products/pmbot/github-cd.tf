@@ -2,8 +2,8 @@
 # shared provider read in github-oidc.tf (data.aws_iam_openid_connect_provider.github); no secret exists.
 #
 #   pmbot-github-deploy          polymarket-bot main: describe + register task definitions, update the
-#                                five pmbot services, re-point the daily-ingest and predictor schedules.
-#                                Nothing else.
+#                                pmbot services, re-point the daily-ingest and predictor schedules, and
+#                                upload + invalidate the status site (CH-009; never status.json). Nothing else.
 #   pmbot-github-terraform       base-infra main: plan and apply this stack (pmbot-named resources only).
 #   pmbot-github-terraform-plan  base-infra pull requests: read-only plan. A pull_request run uses the
 #                                PR's own workflow file, so this role must not be able to write anything.
@@ -114,6 +114,27 @@ locals {
       Effect   = "Allow"
       Action   = ["ssm:GetParameter", "ssm:GetParameters"]
       Resource = "arn:aws:ssm:${var.aws_region}::parameter/aws/service/ecs/*"
+    },
+    {
+      # CH-009: refreshing the status site bucket (bucket-level Get/List only; no object read).
+      Sid    = "ReadTheSiteBucket"
+      Effect = "Allow"
+      Action = [
+        "s3:GetBucket*",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetReplicationConfiguration",
+        "s3:ListBucket",
+      ]
+      Resource = "arn:aws:s3:::${local.site_bucket}"
+    },
+    {
+      # CH-009: CloudFront reads have no useful resource scoping across distributions and OACs.
+      Sid      = "ReadCloudFront"
+      Effect   = "Allow"
+      Action   = ["cloudfront:Get*", "cloudfront:List*"]
+      Resource = "*"
     },
   ]
 
@@ -249,6 +270,30 @@ locals {
       ]
     },
     {
+      # CH-009: the status site bucket, by name.
+      Sid      = "ManageTheSiteBucket"
+      Effect   = "Allow"
+      Action   = ["s3:*"]
+      Resource = ["arn:aws:s3:::${local.site_bucket}", "arn:aws:s3:::${local.site_bucket}/*"]
+    },
+    {
+      # CH-009: edits to the pmbot distribution only (it carries the Product=pmbot default tag). Creating a
+      # distribution or an OAC is an owner apply.
+      Sid    = "ManageThePmbotDistribution"
+      Effect = "Allow"
+      Action = [
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource",
+        "cloudfront:CreateInvalidation",
+      ]
+      Resource = "arn:aws:cloudfront::${local.account_id}:distribution/*"
+      Condition = {
+        StringEquals = { "aws:ResourceTag/Product" = var.product }
+      }
+    },
+    {
       Sid    = "NeverEditTheCdRoles"
       Effect = "Deny"
       Action = [
@@ -380,6 +425,40 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect   = "Allow"
         Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
         Resource = "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/default/pmbot-predictor"
+      },
+      {
+        # CH-009: registering pmbot-status revisions passes its task role.
+        Sid      = "PassTheStatusTaskRole"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = aws_iam_role.status.arn
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }
+        }
+      },
+      {
+        # CH-009: pmbot-site.yml lists the bucket for `aws s3 sync`.
+        Sid      = "ListTheSiteBucket"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = aws_s3_bucket.site.arn
+      },
+      {
+        # The page, its scoreboard and its hashed assets. Never status.json: the pmbot-status task owns it.
+        Sid    = "UploadTheSite"
+        Effect = "Allow"
+        Action = ["s3:PutObject", "s3:DeleteObject"]
+        Resource = [
+          "${aws_s3_bucket.site.arn}/index.html",
+          "${aws_s3_bucket.site.arn}/scoreboard.json",
+          "${aws_s3_bucket.site.arn}/assets/*",
+        ]
+      },
+      {
+        Sid      = "InvalidateTheSite"
+        Effect   = "Allow"
+        Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+        Resource = aws_cloudfront_distribution.site.arn
       },
     ]
   })
