@@ -43,9 +43,9 @@ variable "github_repo" {
 }
 
 variable "github_oidc_subject" {
-  description = "Exact OIDC sub claim allowed to assume the push role. Null derives repo:<github_repo>:ref:refs/heads/main. Set it only if the org emits immutable subject claims (repo:OWNER@ID/REPO@ID:ref:refs/heads/main)."
+  description = "Exact OIDC sub claim allowed to assume the push role. Null derives repo:<github_repo>:ref:refs/heads/main. OptimusFoundry/polymarket-bot emits immutable subject claims (GET repos/OptimusFoundry/polymarket-bot/actions/oidc/customization/sub, 2026-10-01), so the default is that exact sub."
   type        = string
-  default     = null
+  default     = "repo:OptimusFoundry@167594521/polymarket-bot@1254825224:ref:refs/heads/main"
 }
 
 variable "data_bucket" {
