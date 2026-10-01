@@ -78,6 +78,12 @@ variable "daily_ingest_enabled" {
   default     = true
 }
 
+variable "predictor_enabled" {
+  description = "Whether the pmbot-predictor schedule (every 15 minutes, America/New_York) fires, and whether its two alarms exist (EP-030). Default false: the owner enables it by PR after one verified manual run (runbook docs/runbooks/predictor.md)."
+  type        = bool
+  default     = false
+}
+
 variable "base_infra_oidc_subject_prefix" {
   description = "OIDC sub prefix of OptimusFoundry/base-infra, which emits immutable subject claims (GET repos/OptimusFoundry/base-infra/actions/oidc/customization/sub, 2026-10-01). The apply role trusts <prefix>:ref:refs/heads/main, the plan role <prefix>:pull_request."
   type        = string

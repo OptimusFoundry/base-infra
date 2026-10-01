@@ -22,15 +22,15 @@ no secret and no `POLYMARKET_*` variable exists anywhere in this stack.
 | Instance role / profile / SG | `pmbot-ecs-instance` (no ingress, all egress, no key pair) |
 | Launch template + ASG | `pmbot-ecs-*`, exactly 1 instance, 100 GB encrypted gp3, IMDSv2 hop limit 1 |
 | Task / execution / scheduler roles | `pmbot-task`, `pmbot-task-execution`, `pmbot-scheduler` |
-| Log groups | `/ecs/pmbot/<name>` for the 6 tasks, 30 days |
-| Task definitions | `pmbot-<name>` x 6 (bridge, EC2, arm64) |
+| Log groups | `/ecs/pmbot/<name>` for the 7 tasks, 30 days |
+| Task definitions | `pmbot-<name>` x 7 (bridge, EC2, arm64) |
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll` |
-| Schedule | `pmbot-daily-ingest`, 06:00 America/New_York, one attempt |
-| Alarms | 5 x `pmbot-<name>-not-running`, `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing`, to `platform-alerts` |
+| Schedules | `pmbot-daily-ingest` (06:00 America/New_York) and `pmbot-predictor` (every 15 minutes, ships DISABLED, EP-030), one attempt each |
+| Alarms | 5 x `pmbot-<name>-not-running`, `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing`, `pmbot-maker-stale-predictions`, and `pmbot-predictor-failed` and `pmbot-predictor-stale` (only while `predictor_enabled`), to `platform-alerts` |
 
 `platform` is read through `terraform_remote_state` for the VPC, the public subnets and the `platform-alerts`
 topic only. The shared `ecs-cluster` is never read or changed, and nothing in `platform/` or another product
-changes: a full plan from an empty state is 47 creates, all pmbot-named, and no update, replace or destroy.
+changes: a full plan from an empty state was 47 creates before EP-030 and is 54 after it (56 with `predictor_enabled`), all pmbot-named, and no update, replace or destroy.
 
 ## Topology (dedicated cluster, owner decision D1 = b)
 
@@ -56,7 +56,7 @@ changes: a full plan from an empty state is 47 creates, all pmbot-named, and no 
 
 | What | Trigger | Role (GitHub OIDC, no secrets) | Does |
 |---|---|---|---|
-| App deploy | polymarket-bot `pmbot-image` succeeds on `main` (`pmbot-deploy.yml`, `workflow_run`), or a manual dispatch with an image tag | `pmbot-github-deploy` | a new revision of each of the 6 families with only the image swapped, `update-service` x5, wait until stable, re-point the schedule; rolls the services back on failure |
+| App deploy | polymarket-bot `pmbot-image` succeeds on `main` (`pmbot-deploy.yml`, `workflow_run`), or a manual dispatch with an image tag | `pmbot-github-deploy` | a new revision of each of the 7 families (`pmbot-predictor` is skipped while it does not exist) with the image swapped and `PMBOT_GIT_SHA` set, `update-service` x5, wait until stable, re-point both schedules; rolls the services back on failure |
 | Plan | base-infra PR touching `products/pmbot/**` (`.github/workflows/pmbot-terraform.yml`, job `plan`) | `pmbot-github-terraform-plan` (read-only; plans with `-lock=false`) | `fmt -check`, `validate`, `plan`, guard preview, PR comment |
 | Apply | push to base-infra `main` touching `products/pmbot/**` (job `apply`) | `pmbot-github-terraform` | `plan -out`, `ci/plan_guard.py`, `apply` of that saved plan |
 
@@ -83,6 +83,32 @@ changes: a full plan from an empty state is 47 creates, all pmbot-named, and no 
   next plan, and is applied on the next merge. It never replaces the running instance (no `instance_refresh`).
 - **Pause CD:** `gh workflow disable pmbot-terraform.yml --repo OptimusFoundry/base-infra`, or the same for
   `pmbot-deploy.yml` in polymarket-bot.
+
+## Predictor (EP-030)
+
+`pmbot-predictor` is an EventBridge-scheduled ECS task (`cron(0/15 * * * ? *)`, America/New_York, one attempt) that
+runs `python -m sports.models.predictor.run publish`. It writes `predictions/<league>/<date>/<offset>/` to the data
+bucket through the shared task role (`DataObjects` already allows `s3:PutObject` on the bucket; the `Deny` on
+`s3:DeleteObject*` stays). Plan: polymarket-bot EP-030; runbook: `docs/runbooks/predictor.md` there.
+
+- **Ships disabled.** `var.predictor_enabled` (default `false`) sets the schedule's state and creates the two predictor
+  alarms (`pmbot-predictor-failed`, `pmbot-predictor-stale`). Enable it by a PR that changes the default to `true`, after
+  one verified manual run. Disable it the same way. Expect one transient `pmbot-predictor-stale` ALARM mail in the first
+  hour after enabling (missing data counts as breaching until the first run reports).
+- **Size.** 512 CPU units, 1536 MiB reservation, 3072 MiB limit: below the target 2048/4096/1024 because today's
+  `t4g.large` also runs the five services and the 06:00 ingest. Phase D retunes it with the instance.
+- **Environment.** `PREDICTOR_LEAGUES=NBA,NHL` plus the common contract. No `LIVE_*`, no `POLYMARKET_*`, no secret.
+  `PMBOT_GIT_SHA` (the published `model_version`) is added by `pmbot-deploy`, never here.
+- **First run needs a deploy.** The Terraform-registered revision carries the bootstrap image, which has no predictor
+  code. Dispatch `pmbot-deploy` with the running SHA once after the apply (it registers a revision with the current image
+  and re-points the schedule), then run the task by hand and read `/ecs/pmbot/predictor`. This is the same rule as any
+  task-definition edit (see Continuous delivery).
+- **Flag flip.** The maker reads `MAKER_PREDICTIONS_SOURCE` (`inline`, the default when absent, or `published`). It is set
+  in `local.maker_env` in `services.tf`. Changing it edits the `maker-paper` task definition, so it needs a `pmbot-deploy`
+  dispatch to reach the service.
+- **Deploy role.** `pmbot-github-deploy` may `scheduler:GetSchedule` and `UpdateSchedule` on `pmbot-predictor`
+  (statement `RepointThePredictorSchedule` in `github-cd.tf`). `plan_guard.py` refuses CD changes to that role, so the
+  statement was applied by the owner before the predictor resources were merged.
 
 ## Bootstrap (done once, from a workstation with admin credentials)
 
@@ -156,7 +182,7 @@ and Phase B applied the full stack with that tag. That tag is now `var.image_tag
 | 100 GB gp3 root volume | about $8 |
 | Public IPv4 address | about $3.70 |
 | Container Insights (single instance, 5 services) | about $5 to $10 |
-| Alarms (7) and two custom metrics | about $1.30 |
+| Alarms (8, or 10 with the predictor enabled) and five custom metrics | about $2.50 |
 | Log ingestion and storage, 30 days | about $0.50 per GB ingested |
 | ECR storage, 30 images | about $1 to $3 |
 | **Total, before logs and S3 data** | **about $68 to $75** |

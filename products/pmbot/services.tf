@@ -70,7 +70,23 @@ locals {
     extra_env          = {}
   }
 
-  all_tasks = merge(local.services, { "daily-ingest" = local.daily_ingest })
+  # The predictor (EP-030, sports/ops/services.py SCHEDULED): publishes predictions/<league>/... every
+  # 15 minutes. Run by EventBridge Scheduler like daily-ingest. Sized below spec section 6 (2048/4096/1024)
+  # because today's t4g.large also runs the five services and the 06:00 ingest (plan OD5); Phase D retunes.
+  # PREDICTOR_LEAGUES is the CLI's default league list. PMBOT_GIT_SHA (its model_version) is injected by
+  # pmbot-deploy, never here: a Terraform-registered revision runs the bootstrap image.
+  predictor = {
+    command            = ["python", "-m", "sports.models.predictor.run", "publish"]
+    cpu                = 512
+    memory_reservation = 1536
+    memory             = 3072
+    extra_env          = { PREDICTOR_LEAGUES = "NBA,NHL" }
+  }
+
+  all_tasks = merge(local.services, {
+    "daily-ingest" = local.daily_ingest
+    "predictor"    = local.predictor
+  })
 
   # One container per task definition; the container is named after the service.
   container_definitions = {
@@ -170,6 +186,30 @@ resource "aws_ecs_task_definition" "daily_ingest" {
   }
 }
 
+resource "aws_ecs_task_definition" "predictor" {
+  family                   = "pmbot-predictor"
+  network_mode             = "bridge"
+  requires_compatibilities = ["EC2"]
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+  container_definitions    = jsonencode(local.container_definitions["predictor"])
+
+  runtime_platform {
+    cpu_architecture        = "ARM64"
+    operating_system_family = "LINUX"
+  }
+
+  volume {
+    name      = "data"
+    host_path = "/data"
+  }
+
+  placement_constraints {
+    type       = "memberOf"
+    expression = local.placement_expression
+  }
+}
+
 # Stop-then-start deploys (plan ruling 5): the old task gets SIGTERM and up to 120 s to flush
 # before the new one starts, so two recorders, or two makers on one /data, never run at once.
 # desired_count is ignored after create: a manual kill switch (`--desired-count 0`, runbook) must survive
@@ -217,7 +257,7 @@ output "service_names" {
 
 output "log_group_names" {
   value       = { for key, group in aws_cloudwatch_log_group.svc : key => group.name }
-  description = "CloudWatch log groups by task name, including daily-ingest"
+  description = "CloudWatch log groups by task name, including daily-ingest and predictor"
 }
 
 output "placement_expression" {
