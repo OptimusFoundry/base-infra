@@ -17,8 +17,9 @@ locals {
 
   # Paper only, forced here and nowhere configurable (sports-live-rules:L-1).
   maker_env = {
-    LIVE_TRADING = "0"
-    LIVE_LEAGUES = "NBA,NHL"
+    LIVE_TRADING             = "0"
+    LIVE_LEAGUES             = "NBA,NHL"
+    MAKER_PREDICTIONS_SOURCE = "published" # CHORE-014 (2026-10-01): maker reads the predictor's published predictions
   }
 
   # The five long-running services. Commands mirror sports/ops/services.py SERVICES (T15 diffs
