@@ -57,9 +57,12 @@ resource "aws_iam_role_policy" "scheduler" {
         Sid    = "PassOnlyThePmbotTaskRoles"
         Effect = "Allow"
         Action = "iam:PassRole"
+        # EP-031: the scheduled families (daily-ingest, predictor) run as the model plane's role once
+        # pmbot-deploy re-points their schedules at the per-plane revisions.
         Resource = [
           aws_iam_role.task.arn,
           aws_iam_role.task_execution.arn,
+          aws_iam_role.plane["model"].arn,
         ]
         Condition = {
           StringLike = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }
