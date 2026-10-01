@@ -344,10 +344,15 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "${local.ecs_arn}:service/${local.name}/pmbot-*"
       },
       {
-        Sid      = "PassTheTaskRoles"
-        Effect   = "Allow"
-        Action   = ["iam:PassRole"]
-        Resource = [aws_iam_role.task.arn, aws_iam_role.task_execution.arn]
+        # EP-031: the four per-plane task roles. Literal ARNs, not aws_iam_role.plane[...].arn, so this
+        # owner-applied change needs none of them to exist yet. pmbot-task-live is not listed (EP-033).
+        Sid    = "PassTheTaskRoles"
+        Effect = "Allow"
+        Action = ["iam:PassRole"]
+        Resource = concat(
+          [aws_iam_role.task.arn, aws_iam_role.task_execution.arn],
+          [for plane in ["collect", "model", "paper", "research"] : "arn:aws:iam::${local.account_id}:role/pmbot-task-${plane}"],
+        )
         Condition = {
           StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }
         }
