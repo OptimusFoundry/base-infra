@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (gitignored). Names and modes only: no secret belongs in this stack.
+#
+# The git SHA of an image CI has pushed to ECR. Phase A (ECR + push role) does not need a real
+# value; Phase B does. The angle brackets below are deliberately not a legal tag, so copying
+# this file unedited fails plan instead of deploying a placeholder.
+image_tag = "<git sha pushed by CI>"
+
+# ro while the Mac recorder and maker still write the canonical sports/ prefix; rw after cutover.
+sports_s3_mode = "ro"
