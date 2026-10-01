@@ -583,5 +583,42 @@ class RolePolicyReport(unittest.TestCase):
                          {"create": 8, "update": 3, "replace": 0, "delete": 0})
 
 
+class PlaneRevisions(unittest.TestCase):
+    """PR B (`task_role_arn` and SPORTS_S3_QUEUE per family) and PR C (the per-target image) replace every
+    task definition and change nothing else the guard knows about."""
+
+    ADDRESSES = {
+        'aws_ecs_task_definition.svc["recorder"]': ("recorder", "collect"),
+        'aws_ecs_task_definition.svc["maker-paper"]': ("maker-paper", "paper"),
+        'aws_ecs_task_definition.svc["ingame-capture"]': ("ingame-capture", "collect"),
+        'aws_ecs_task_definition.svc["xvenue-poller"]': ("xvenue-poller", "collect"),
+        'aws_ecs_task_definition.svc["rewards-poll"]': ("rewards-poll", "collect"),
+        "aws_ecs_task_definition.daily_ingest": ("daily-ingest", "model"),
+        "aws_ecs_task_definition.predictor": ("predictor", "model"),
+    }
+
+    def replaced(self, queue: str = "plane") -> list[dict[str, Any]]:
+        out = []
+        for address, (family, plane) in self.ADDRESSES.items():
+            env = [*PAPER_ENV, {"name": "SPORTS_S3_QUEUE", "value": plane if queue == "plane" else queue}]
+            containers = json.dumps([{"name": family, "image": f"x/pmbot:abc-{plane}", "environment": env}])
+            out.append(rc(address, ["delete", "create"], after={"family": f"pmbot-{family}",
+                                                                "container_definitions": containers}))
+        return out
+
+    def test_the_seven_replaced_task_definitions_pass_and_are_listed_for_the_rollout(self) -> None:
+        refusals, notes = evaluate(plan(*self.replaced()))
+        self.assertEqual(refusals, [])
+        self.assertEqual(sorted(notes), sorted(self.ADDRESSES))
+        self.assertEqual(plan_guard.counts(plan_guard.managed_changes(plan(*self.replaced()))),
+                         {"create": 0, "update": 0, "replace": 7, "delete": 0})
+
+    def test_a_live_setting_slipped_into_one_of_them_is_still_refused(self) -> None:
+        changes = self.replaced()
+        changes[1] = task_def(["delete", "create"], env=[{"name": "LIVE_TRADING", "value": "1"}])
+        refusals, _ = evaluate(plan(*changes))
+        self.assertEqual(len(refusals), 1, refusals)
+
+
 if __name__ == "__main__":
     unittest.main()
