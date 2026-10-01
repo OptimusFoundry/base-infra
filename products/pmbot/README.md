@@ -179,6 +179,17 @@ CloudFront never caches that path. polymarket-bot's `pmbot-site.yml` uploads `in
 - **Parked at 0 on purpose.** The Terraform-registered revision runs `${var.image_tag}-collect`, the bootstrap image,
   which has no status writer. Like every family, the running revision belongs to `pmbot-deploy`
   (`ignore_changes = [desired_count, task_definition]`).
+- **DNS record.** `products/pmbot/dns/` is its own root (state key `dns/terraform.tfstate` in `pmbot-terraform-state`):
+  one `cloudflare_dns_record` `pmbot.protoapp.xyz CNAME <distribution>.cloudfront.net`, not proxied (CloudFront
+  terminates TLS on the platform wildcard certificate). It reads the Cloudflare global key from SSM, so CD never
+  plans it; the owner applies it once after the distribution exists:
+
+      terraform -chdir=products/pmbot/dns init -input=false
+      TF_VAR_cloudflare_email=<Cloudflare email> terraform -chdir=products/pmbot/dns plan -input=false -out=tfplan-dns
+      terraform -chdir=products/pmbot/dns apply tfplan-dns && rm products/pmbot/dns/tfplan-dns
+
+  Expected: 1 to add. Check: `dig +short pmbot.protoapp.xyz CNAME` names the distribution, and
+  `curl -sSI https://pmbot.protoapp.xyz` answers `HTTP/2 200` once the page is uploaded.
 
 ## Bootstrap (done once, from a workstation with admin credentials)
 
