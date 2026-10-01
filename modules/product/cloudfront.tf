@@ -70,6 +70,7 @@ resource "aws_cloudfront_distribution" "webapp" {
       https_port             = 443
       origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+      origin_read_timeout    = var.api_origin_read_timeout
     }
 
     # Routes this product's API traffic to its own target group on the shared

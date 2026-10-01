@@ -88,8 +88,20 @@ variable "cloudfront_spa_function_arn" {
 # --- Routing ---
 
 variable "alb_rule_priority" {
-  description = "ALB listener rule priority. sjocamp 100, meerkat 200, new projects from 300 in steps of 10. AWS rejects duplicates."
+  description = "ALB listener rule priority. sjocamp 100, meerkat 200, orca 300, aitravel 310; new projects from 320 in steps of 10. AWS rejects duplicates."
   type        = number
+}
+
+variable "api_origin_read_timeout" {
+  description = "Seconds CloudFront waits for the ALB-API origin's first byte. Default 30 matches CloudFront's own default, so existing products plan as a no-op; raise it for APIs with slow synchronous requests (e.g. LLM generation)."
+  type        = number
+  default     = 30
+
+  # 60 is CloudFront's ceiling without a service-quota increase.
+  validation {
+    condition     = var.api_origin_read_timeout >= 1 && var.api_origin_read_timeout <= 60
+    error_message = "api_origin_read_timeout must be between 1 and 60 seconds."
+  }
 }
 
 variable "extra_aliases" {

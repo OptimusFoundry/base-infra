@@ -6,6 +6,7 @@ Two stacks in this PR are now applied to AWS:
 - `products/meerkat/` — protoapp.xyz live, ECS service, CloudFront, S3, SSM. State at `s3://protoapp-terraform-state/state/terraform.tfstate` (bucket name predates the meerkat rename).
 - `products/sjocamp/` — `app.sjocamp.co` SaaS, CloudFront, S3, ECS service `sjocamp-api`, SSM. State at `s3://sjocamp-terraform-state/state/terraform.tfstate`.
 - `products/orca/` — `orca.protoapp.xyz`, the tickuptoks app. CloudFront, S3, ECS services `orca-api` + `orca-render-service`, media bucket, SSM. State at `s3://protoapp-orca-terraform-state/state/terraform.tfstate`. Bootstrap steps live in `products/orca/README.md`, not here.
+- `products/aitravel/` — `aitravel.protoapp.xyz/api`, the AITravel iOS app's Go API. CloudFront, S3, ECS service `aitravel-api`, a one-shot `aitravel-migrator` task, private media bucket, SSM. State at `s3://aitravel-terraform-state/state/terraform.tfstate`. Bootstrap steps live in `products/aitravel/README.md`.
 
 The sjocamp landing page (apex `sjocamp.co` and `www.sjocamp.co`) is intentionally not managed here — it lives on Cloudflare Pages and is untouched.
 
@@ -16,6 +17,7 @@ The sjocamp landing page (apex `sjocamp.co` and `www.sjocamp.co`) is intentional
 | 100 | path `/api/*` AND header `X-Product-Id=sjocamp` | `sjocamp-api-tg` |
 | 200 | path `/api/*` AND header `X-Product-Id=meerkat` | `ecs-target-group` |
 | 300 | path `/api/*` AND header `X-Product-Id=orca` | `orca-api-tg` |
+| 310 | path `/api/*` AND header `X-Product-Id=aitravel` | `aitravel-api-tg` |
 | default | anything not matched above | fixed-response 404 |
 
 Each product's CloudFront origin injects the `X-Product-Id` header so the ALB can dispatch.

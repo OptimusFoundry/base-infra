@@ -8,13 +8,21 @@ AWS infrastructure split into a shared platform stack and one Terraform stack pe
 infra-setup/
 ├── platform/               # shared: VPC, RDS, ECS cluster, ALB, Kafka, IAM
 └── products/
-    └── meerkat/            # meerkat-only: S3, CloudFront, ACM, ECS service, SSM, DNS
+    ├── _template/          # starting point for a new product
+    ├── meerkat/            # meerkat-only: S3, CloudFront, ACM, ECS service, SSM, DNS
+    ├── sjocamp/
+    ├── orca/               # the tickuptoks app
+    ├── aitravel/           # the AITravel iOS app's API
+    └── pmbot/
 ```
 
 ### State
 
 - **platform** state: `s3://protoapp-infra-terraform-state/state/terraform.tfstate` (unchanged from the pre-split setup)
 - **products/meerkat** state: `s3://protoapp-terraform-state/state/terraform.tfstate` (bucket name predates the meerkat rename and is deliberately unchanged)
+- **products/sjocamp** state: `s3://sjocamp-terraform-state/state/terraform.tfstate`
+- **products/orca** state: `s3://protoapp-orca-terraform-state/state/terraform.tfstate` (`orca-terraform-state` was taken globally)
+- **products/aitravel** state: `s3://aitravel-terraform-state/state/terraform.tfstate`
 
 Future products get their own state bucket and live in `products/<name>/`.
 
@@ -62,8 +70,9 @@ To promote a prototype, see the spec:
    the spec (`docs/superpowers/specs/2026-07-25-product-tiers-design.md`)
    for the exact steps.
 1. `cp -r products/_template products/<slug>` and replace every `PROJECT_SLUG`
-2. Pick an unused `alb_rule_priority` — sjocamp 100, meerkat 200, new projects
-   from 300 in steps of 10. AWS rejects duplicate priorities.
+2. Pick an unused `alb_rule_priority` — sjocamp 100, meerkat 200, orca 300,
+   aitravel 310; new projects from 320 in steps of 10. AWS rejects duplicate
+   priorities.
 3. `aws s3 mb s3://<slug>-terraform-state`
 4. Add the project's ECS task definition and service in `products/<slug>/`,
    wiring `load_balancer.target_group_arn` to `module.product.target_group_arn`
