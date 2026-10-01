@@ -14,19 +14,20 @@ resource "aws_ecr_repository" "pmbot" {
   }
 }
 
-# Keep the 30 newest images; older SHAs age out. A rollback further back than 30 pushes
-# needs a rebuild.
+# Keep the 120 newest images; older SHAs age out. Since EP-031 every push is four distinct images (collect,
+# model, trade and research, the last also tagged with the bare SHA), so 120 is still about 30 pushes of
+# rollback window (it was 30 images = 30 pushes). A rollback further back needs a rebuild.
 resource "aws_ecr_lifecycle_policy" "pmbot" {
   repository = aws_ecr_repository.pmbot.name
 
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Expire all but the 30 most recent images"
+      description  = "Expire all but the 120 most recent images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 30
+        countNumber = 120
       }
       action = { type = "expire" }
     }]
