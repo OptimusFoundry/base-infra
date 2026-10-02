@@ -1,6 +1,25 @@
 # Dedicated compute for pmbot: its own ECS cluster ("pmbot", owner decision D1 = b) backed by
-# one t4g.large. Nothing here reads or changes the shared ecs-cluster. The instance also
-# carries the ECS attribute pmbot=dedicated, which the services may still pin to.
+# one t4g.xlarge (var.instance_type; EP-032 moved it up from t4g.large). Nothing here reads or
+# changes the shared ecs-cluster. The instance also carries the ECS attribute pmbot=dedicated,
+# which the services may still pin to.
+
+locals {
+  # Every family that gets its own host data dir /data/<family> (EP-032). user_data creates each one
+  # owned by uid 10001, so Docker never creates a bind-mount source itself (it would be root:root and
+  # the container user could not write it). Twin of polymarket-bot sports/ops/sizing.py FAMILIES plus
+  # the EP-034 research slot; ci/test_compute.py pins this list and every host_path in services.tf to it.
+  data_families = [
+    "recorder",
+    "maker-paper",
+    "maker-live",
+    "ingame-capture",
+    "xvenue-poller",
+    "rewards-poll",
+    "daily-ingest",
+    "predictor",
+    "research",
+  ]
+}
 
 # --- Cluster ---
 
@@ -88,6 +107,13 @@ resource "aws_launch_template" "instance" {
   instance_type          = var.instance_type
   update_default_version = true
 
+  # Pinned (EP-032). The account default for T4g is already "unlimited" (2026-10-01), so a CPU-bound
+  # predictor run is never throttled and surplus credits are billed instead. Pinning stops an
+  # account-default change from silently switching the host to "standard" (the 40% per-vCPU baseline).
+  credit_specification {
+    cpu_credits = "unlimited"
+  }
+
   iam_instance_profile {
     name = aws_iam_instance_profile.instance.name
   }
@@ -130,9 +156,14 @@ resource "aws_launch_template" "instance" {
     ECS_INSTANCE_ATTRIBUTES=${jsonencode({ (local.placement_attribute) = local.placement_value })}
     ECS_ENABLE_TASK_IAM_ROLE=true
     ECS_CONTAINER_STOP_TIMEOUT=120s
+    ECS_RESERVED_MEMORY=512
     ECSCONFIG
     mkdir -p /data
     chown 10001:10001 /data
+    for family in ${join(" ", local.data_families)}; do
+      mkdir -p "/data/$family"
+      chown 10001:10001 "/data/$family"
+    done
     EOT
   )
 
