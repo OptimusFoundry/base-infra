@@ -84,9 +84,9 @@ variable "status_cost_source" {
 }
 
 variable "status_alarms_enabled" {
-  description = "Whether the status-plane and collect-plane alarms exist (EP-035): pmbot-status-not-publishing and one pmbot-<tile>-data-stale per collector tile. Default false: pmbot-status may still be parked at desired 0, and a breaching StatusPublished alarm would sit in ALARM. Flip it by a one-line PR and an owner apply after the writer has published for 15 minutes (polymarket-bot docs/runbooks/ops.md). The log metric filters are always on."
+  description = "Whether the status-plane and collect-plane alarms exist (EP-035): pmbot-status-not-publishing and one pmbot-<tile>-data-stale per collector tile. On since 2026-10-02, once the writer had published for 30 minutes. Set false while pmbot-status is parked at desired 0, or the breaching StatusPublished alarm sits in ALARM (polymarket-bot docs/runbooks/ops.md). The log metric filters are always on."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "dashboard_enabled" {

@@ -129,9 +129,9 @@ quoted term matches the JSON renderer too). Runbook: polymarket-bot `docs/runboo
 | ops | `pmbot-status-not-publishing` | no `status_published` for 3 x 5 min | breaching | `status_alarms_enabled` |
 | any | `pmbot-s3-put-forbidden` | an `s3_put_forbidden` line in any task log | notBreaching | always |
 
-- **`status_alarms_enabled`** (default `false`): `pmbot-status` ships parked at desired 0 and a breaching `StatusPublished`
-  alarm would sit in ALARM. Flip the default to `true` by a one-line PR (owner apply) once the writer has published for
-  15 minutes. The filters behind both alarms are always on, so the metrics already have history when it flips.
+- **`status_alarms_enabled`** (default `true` since 2026-10-02): set it `false` while `pmbot-status` is parked at
+  desired 0, or the breaching `StatusPublished` alarm sits in ALARM. The filters behind both alarms are always on, so
+  the metrics keep their history across a flip.
 - **Scaling the maker to 0** (the kill-switch runbook) also trips `pmbot-maker-paper-not-running` and, after 15 minutes,
   `pmbot-maker-paper-no-ticks`: expected.
 - **Not alarmed, on purpose:** `ingame-capture` staleness (it writes only during games) and the predictor tiles (the two
