@@ -56,9 +56,9 @@ variable "data_bucket" {
 }
 
 variable "instance_type" {
-  description = "Instance type of the dedicated pmbot ECS host (Graviton, arm64)"
+  description = "Instance type of the dedicated pmbot ECS host (Graviton, arm64). t4g.xlarge (4 vCPU, 16 GiB) since EP-032: the per-family reservations in services.tf (polymarket-bot sports/ops/sizing.py) add up to 7,680 MiB and 3,200 CPU units with maker-live, more than a t4g.large (2,048 CPU units) holds. Changing it updates the launch template in place; it never replaces the running instance (replacing it is a runbook step, docs/runbooks/data-plane-compute.md in polymarket-bot)."
   type        = string
-  default     = "t4g.large"
+  default     = "t4g.xlarge"
 }
 
 variable "root_volume_gb" {

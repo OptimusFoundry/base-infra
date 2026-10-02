@@ -2,7 +2,7 @@
 
 The polymarket-bot sports stack (`OptimusFoundry/polymarket-bot`, formerly `SAVentures/polymarket-bot`) on AWS.
 One linux/arm64 image runs the recorder, the paper maker, three research collectors and a daily ingest
-as ECS tasks on a dedicated `t4g.large` in a dedicated `pmbot` ECS cluster. The plan is CH-007 in the
+as ECS tasks on a dedicated `t4g.xlarge` in a dedicated `pmbot` ECS cluster. The plan is CH-007 in the
 polymarket-bot repo (`docs/superpowers/plans/`), the change brief is `docs/briefs/cloud-deploy.md` and the
 runbook is `docs/runbooks/cloud-deploy.md`.
 
@@ -197,6 +197,26 @@ CloudFront never caches that path. polymarket-bot's `pmbot-site.yml` uploads `in
   Expected: 1 to add. Check: `dig +short pmbot.protoapp.xyz CNAME` names the distribution, and
   `curl -sSI https://pmbot.protoapp.xyz` answers `HTTP/2 200` once the page is uploaded.
 
+## Compute: t4g.xlarge, unlimited credits, per-family data dirs (EP-032)
+
+- **Instance.** `var.instance_type` is `t4g.xlarge` (4 vCPU, 16 GiB). The launch template pins `credit_specification { cpu_credits = "unlimited" }`:
+  the account default for T4g is already unlimited, so a CPU-bound predictor run (about one full vCPU) is never throttled and surplus
+  credits are billed (about $0.05 per vCPU-hour) instead. Pinning stops an account-default change from switching the host to `standard`.
+- **ECS memory.** User data adds `ECS_RESERVED_MEMORY=512` to `/etc/ecs/ecs.config`: the ECS agent registers 512 MiB less memory, which
+  stays free for the OS and the agent.
+- **Per-family data dirs.** User data creates `/data/<family>` (owner 10001:10001) for every family in `local.data_families`: recorder,
+  maker-paper, maker-live, ingame-capture, xvenue-poller, rewards-poll, daily-ingest, predictor, research. Nothing mounts them until the
+  services PR sets each task definition's `host_path`. Docker creates a missing bind-mount source as `root:root`, which the container user
+  (10001) cannot write, so the dirs must exist on the host first.
+- **Applying this moves nothing.** The launch template is updated in place (a new version; `name_prefix` and `create_before_destroy`
+  unchanged) and the ASG follows `latest_version` in place; there is no `instance_refresh`, so the running instance keeps running.
+  Expected plan: `0 to add, 2 to change, 0 to destroy` (`aws_launch_template.instance`, `aws_autoscaling_group.pmbot`); `plan_guard`
+  passes (it refuses only a delete or replace of a guarded type). The new type, credit setting and directories reach a host only when the
+  instance is replaced: after the flush in polymarket-bot `docs/runbooks/data-plane-compute.md`, terminate it in the ASG
+  (`aws autoscaling terminate-instance-in-auto-scaling-group --no-should-decrement-desired-capacity`).
+- **Tests.** `ci/test_compute.py` pins the type, the credit specification, `ECS_RESERVED_MEMORY`, the directory list and the absence of
+  `instance_refresh`.
+
 ## Bootstrap (done once, from a workstation with admin credentials)
 
 The CD roles cannot create themselves. Run this once, from the repo root, on the branch that adds `github-cd.tf`:
@@ -265,14 +285,14 @@ and Phase B applied the full stack with that tag. That tag is now `var.image_tag
 
 | Item | Per month |
 |---|---|
-| t4g.large, 1 instance | about $49 |
+| t4g.xlarge, 1 instance, unlimited credits (surplus credits only above the 160% baseline, about $0.05 per vCPU-hour) | about $98 |
 | 100 GB gp3 root volume | about $8 |
 | Public IPv4 address | about $3.70 |
 | Container Insights (single instance, 5 services) | about $5 to $10 |
 | Alarms (9, or 11 with the predictor enabled) and six custom metrics | about $3 |
 | Log ingestion and storage, 30 days | about $0.50 per GB ingested |
 | ECR storage, 120 images | about $1 to $4 |
-| **Total, before logs and S3 data** | **about $68 to $75** |
+| **Total, before logs and S3 data** | **about $117 to $124** |
 
 S3 storage and requests for the data bucket are separate and already exist. Check the AWS pricing pages before
 relying on these figures.
