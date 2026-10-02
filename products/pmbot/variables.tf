@@ -88,3 +88,31 @@ variable "status_alarms_enabled" {
   type        = bool
   default     = false
 }
+
+variable "dashboard_enabled" {
+  description = "Whether the CloudWatch dashboard `pmbot` exists (EP-035; free while the account has at most three dashboards, then about $3 a month)."
+  type        = bool
+  default     = true
+}
+
+variable "budget_monthly_usd" {
+  description = "Monthly limit of the pmbot AWS Budget in USD (EP-035); 0 creates none. It filters on the Product=pmbot cost-allocation tag, so it covers pmbot's own resources only, not the shared platform host. Leave 0 until the tag is activated in the billing console (a tag-filtered budget tracks $0 before that and never fires); then e.g. 25."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.budget_monthly_usd >= 0
+    error_message = "budget_monthly_usd must be 0 (no budget) or a positive number of USD."
+  }
+}
+
+variable "budget_email" {
+  description = "Where the pmbot budget mails (80 % actual, 100 % forecast). The platform alert address (platform/alerts.tf): AWS Budgets cannot publish to the platform-alerts topic, whose policy has no budgets.amazonaws.com grant."
+  type        = string
+  default     = "hello@shubhanshu.dev"
+
+  validation {
+    condition     = can(regex("^[^@[:space:]]+@[^@[:space:]]+$", var.budget_email))
+    error_message = "budget_email must look like name@domain."
+  }
+}

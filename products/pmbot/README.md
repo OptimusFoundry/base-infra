@@ -20,6 +20,7 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden, and the EP-035 per-plane alarms (section "Alarms by plane") — all to `platform-alerts` |
 | Status site | `pmbot.protoapp.xyz`: bucket `pmbot-site-<account>` + CloudFront on the platform wildcard cert + Cloudflare record |
 | Manifest | `/pmbot/manifest` |
+| Dashboard and budget (EP-035) | CloudWatch dashboard `pmbot` (`dashboard_enabled`, default on) and an optional AWS Budget `pmbot-monthly` on the `Product=pmbot` tag (`budget_monthly_usd`, default 0 = none) |
 
 Not managed here: the data bucket `polymarket-bot-data-339713122183` (created outside Terraform).
 
@@ -119,3 +120,22 @@ quoted term matches the JSON renderer too). Runbook: polymarket-bot `docs/runboo
 - **`tick` is a substring term:** it also matches `tick_failed` lines, which `pmbot-maker-paper-critical` reports anyway.
 - **The event names live in polymarket-bot** (`sports/trading/run.py`, `engine.py`, `sports/ops/status_page.py`); a
   rename there blinds the matching filter silently. Re-check them whenever those files change.
+
+## Dashboard and budget (EP-035)
+
+`dashboard.tf`. Both are separable from the alarms and the status page: nothing else depends on them.
+
+- **Dashboard `pmbot`** (`dashboard_enabled`, default `true`). Only what the public status page cannot show, and only
+  metrics that exist with Container Insights off: per-service `AWS/ECS` CPU and memory utilization (percent of what the
+  tasks reserve), tasks reporting per service (`CPUUtilization` samples, the not-running alarms' signal), the shared
+  cluster's CPU/memory reservation (every product), scheduled-job outcomes per hour, the paper maker's ticks, critical
+  and kill-switch events, the status writer's publishes and stale tiles, and one widget with every alarm of `alarms.tf`
+  (add a new alarm to `local.dashboard_alarm_arns`). No host CPU or credit widget: the instance is the platform's.
+- **Budget `pmbot-monthly`** (`budget_monthly_usd`, default `0` = none). A monthly COST budget filtered on the
+  `Product=pmbot` cost-allocation tag (`TagKeyValue` = `user:Product$pmbot`), mailing `budget_email` at 80 % actual and
+  100 % forecast. The account is shared, so the tag filter is what keeps other products out; it also means the shared
+  host (a platform resource) and the untagged data bucket are not counted. Until the tag is activated (Billing console,
+  Cost allocation tags: `Product`; data within 24 h) a tag-filtered budget tracks $0 and never fires: leave the limit at
+  0, then set it (e.g. 25) by a PR and an owner apply.
+- **Applying.** Like everything here, by the owner from a saved plan. With the alarms (EP-035 PR 1) already applied:
+  `1 to add, 0 to change, 0 to destroy` (`2 to add` with a budget).
