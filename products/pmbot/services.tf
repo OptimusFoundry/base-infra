@@ -18,7 +18,7 @@ locals {
   # Paper only, forced here and nowhere configurable.
   maker_env = {
     LIVE_TRADING             = "0"
-    LIVE_LEAGUES             = "NBA,NHL"
+    LIVE_LEAGUES             = "NBA,NHL,NCAAB"
     MAKER_PREDICTIONS_SOURCE = "published" # the maker reads the predictor's published predictions
   }
 
@@ -85,7 +85,7 @@ locals {
   predictor = {
     command   = ["python", "-m", "sports.models.predictor.run", "publish"]
     size      = local.task_sizes["predictor"]
-    extra_env = { PREDICTOR_LEAGUES = "NBA,NHL", SPORTS_CACHE_PRUNE = "predictions/=3" }
+    extra_env = { PREDICTOR_LEAGUES = "NBA,NHL,NCAAB", SPORTS_CACHE_PRUNE = "predictions/=3" }
   }
 
   all_tasks = merge(local.services, {
