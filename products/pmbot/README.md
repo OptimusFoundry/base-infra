@@ -14,8 +14,9 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | ECR | `pmbot` — IMMUTABLE, `prevent_destroy`, keeps the 120 newest images |
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll`, `pmbot-status` (parked at 0) |
 | Schedules | `pmbot-daily-ingest` (06:00 America/New_York), `pmbot-predictor` (every 15 min) |
+| Research jobs | `pmbot-research`: a task definition only, no service and no schedule (polymarket-bot EP-034) |
 | Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-task` (legacy), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
-| GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy` (polymarket-bot `main`, OIDC) |
+| GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy`, `pmbot-github-research-run` (polymarket-bot `main`, OIDC) |
 | Logs | `/ecs/pmbot/<family>`, 30 days |
 | Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden — all to `platform-alerts` |
 | Status site | `pmbot.protoapp.xyz`: bucket `pmbot-site-<account>` + CloudFront on the platform wildcard cert + Cloudflare record |
@@ -49,6 +50,25 @@ services only on the next `pmbot-deploy`:
 Sizes live in `local.task_sizes` (`services.tf`) and must equal polymarket-bot `sports/ops/sizing.py`
 `SIZES`; its `check-tf` command parses that block, so keep one family per line. Plane write prefixes live
 in `local.planes` (`iam.tf`).
+
+## Research jobs (EP-034)
+
+`research.tf`, the workflow role in `github.tf` and the research plane's ledger statement in `iam.tf`. Runbook:
+polymarket-bot `docs/runbooks/research-jobs.md`.
+
+- **Task definition only.** `pmbot-research` (container `research`, `<image_tag>-research`, role `pmbot-task-research`,
+  `cpu` 512, `memory` 4096, **no `memoryReservation`**, its own volume `pmbot-research` at `/data`, `SPORTS_S3=rw`,
+  `SPORTS_S3_QUEUE=research`, `SPORTS_LEDGER=s3`). No service, no schedule: polymarket-bot's `sports.research.run`
+  starts it with `run-task --launch-type EC2`, refused at once (`RESOURCE:MEMORY`) when the shared host has no
+  unreserved 4096 MiB. ECS counts the hard cap at placement, so a job never takes memory another task reserved, but
+  while it runs it holds 4096 MiB that the predictor or another product's deploy may need: one job at a time.
+  Log group `/ecs/pmbot/research` (30 days), stream `research/research/<task id>`.
+- **Ledger.** The research role may `PutObject` `sports/ledger/records/*` only with `s3:if-none-match` = `*` (a create
+  that fails when the key exists), keeps the `Deny` of `s3:Delete*`, and no longer writes `sports/ledger.jsonl`.
+- **Workflow role.** `pmbot-github-research-run` (OIDC: `main` and the workflow file `pmbot-research.yml` on `main`,
+  3 h sessions) may `ecs:RunTask` `pmbot-research` on `ecs-cluster`, `ecs:DescribeTasks` on the cluster's tasks,
+  `iam:PassRole` the research and execution roles, and `logs:GetLogEvents` on `/ecs/pmbot/research`. Output
+  `github_research_run_role_arn` = repository variable `PMBOT_RESEARCH_ROLE_ARN` in polymarket-bot.
 
 ## Operating
 

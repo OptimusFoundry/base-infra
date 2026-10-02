@@ -37,8 +37,8 @@ locals {
     "daily-ingest"   = { cpu = 512, memory_reservation = 1536, memory = 4096 }
   }
 
-  # The future research job's size: no task definition yet. No memoryReservation, so it only fits into
-  # memory nothing else has reserved.
+  # The research job's size (research.tf, polymarket-bot EP-034). No memoryReservation, so ECS counts the
+  # hard cap at placement and a job only fits into memory nothing on the shared host has reserved.
   research_slot = { cpu = 512, memory = 4096 }
 
   # The five long-running services; commands mirror polymarket-bot sports/ops/services.py SERVICES.

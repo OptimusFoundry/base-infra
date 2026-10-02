@@ -26,10 +26,19 @@ locals {
       exec = false
       write_prefixes = [
         "experiments/", "panel/", "gamma/", "prices/", "pretrades/", "tape/", "hist/", "nba/", "nhl/",
-        "nfl/", "ncaab/", "collectors/xvenue/", "ledger.jsonl",
+        "nfl/", "ncaab/", "collectors/xvenue/",
       ]
     }
   }
+
+  # Key prefixes under sports/ a plane may PutObject to only while the request carries If-None-Match: * (a create
+  # that fails when the key exists: no overwrite). The research plane's durable ledger (polymarket-bot EP-034):
+  # one immutable object per record under sports/ledger/records/. sports/ledger.jsonl, the owner's backup
+  # snapshot, is no longer writable by any task role. Kept out of local.planes on purpose: its attribute set must
+  # stay identical across planes for for_each.
+  plane_create_only_prefixes = tomap({
+    research = ["ledger/records/"]
+  })
 }
 
 resource "aws_iam_role" "task" {
@@ -161,6 +170,20 @@ resource "aws_iam_role_policy" "plane" {
           ]
         },
       ],
+      length(try(local.plane_create_only_prefixes[each.key], [])) > 0 ? [
+        {
+          # s3:if-none-match is the S3 conditional-write condition key (docs "Enforce conditional writes"): the
+          # Null form is AWS's documented one (the header must be present), StringEquals pins its value to *.
+          Sid      = "CreateOnlyOwnPrefixes"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject"]
+          Resource = [for prefix in try(local.plane_create_only_prefixes[each.key], []) : "arn:aws:s3:::${var.data_bucket}/sports/${prefix}*"]
+          Condition = {
+            StringEquals = { "s3:if-none-match" = "*" }
+            Null         = { "s3:if-none-match" = "false" }
+          }
+        },
+      ] : [],
       each.value.exec ? [
         {
           Sid    = "EcsExecChannels"

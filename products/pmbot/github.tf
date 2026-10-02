@@ -3,6 +3,8 @@
 #   pmbot-github-ecr-push  push images to the pmbot repository. Nothing else.
 #   pmbot-github-deploy    register task definitions, update the pmbot services, re-point the two
 #                          schedules, and upload + invalidate the status site (never status.json).
+#   pmbot-github-research-run  start one pmbot-research task on the shared cluster, follow it and read its
+#                          log (polymarket-bot EP-034, the "Run research job" workflow only).
 #
 # The OIDC provider is shared and unmanaged, so it is read as a data source, as platform/github-oidc.tf
 # does. Unlike the other products, which deploy through platform's admin role, these are scoped to
@@ -198,6 +200,90 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect   = "Allow"
         Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
         Resource = aws_cloudfront_distribution.site.arn
+      },
+    ]
+  })
+}
+
+# The role polymarket-bot's "Run research job" workflow (.github/workflows/pmbot-research.yml) assumes. It can start
+# the one pmbot-research family on the shared cluster, look at the cluster's tasks and read that family's log group.
+# It cannot register or stop anything, pass any other role, touch S3, SSM or IAM, or run a vault runner (the
+# workflow offers none, and the job refuses one without the owner's PMBOT_VAULT_GO).
+resource "aws_iam_role" "github_research_run" {
+  name = "pmbot-github-research-run"
+
+  # main of the repository (the immutable subject, as the push and deploy roles) and only the one workflow file on
+  # main: a branch, a pull request or another workflow cannot assume it. The event name is not an AWS condition
+  # key; workflow_dispatch is the workflow file's only trigger (polymarket-bot test_research_workflow.py).
+  # 10800 s: the launcher tails a job's log for as long as it runs (the workflow sets role-duration-seconds).
+  max_session_duration = 10800
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Condition = {
+        StringEquals = {
+          "token.actions.githubusercontent.com:aud"              = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub"              = local.github_subject
+          "token.actions.githubusercontent.com:job_workflow_ref" = "${var.github_repo}/.github/workflows/pmbot-research.yml@refs/heads/main"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "github_research_run" {
+  name = "run-research-job"
+  role = aws_iam_role.github_research_run.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Both forms, as the scheduler's statements: the family ARN and every revision, on the shared cluster only.
+        # DescribeTaskDefinition is deliberately absent (no resource-level permissions): the launcher pins family,
+        # container, log group and stream prefix as constants (run.py).
+        Sid    = "RunTheResearchTask"
+        Effect = "Allow"
+        Action = "ecs:RunTask"
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-research",
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-research:*",
+        ]
+        Condition = {
+          ArnEquals = { "ecs:cluster" = local.cluster_id }
+        }
+      },
+      {
+        # Task ids are random, so this is every task in the shared cluster (read-only status; no secret values).
+        Sid      = "DescribeTheClustersTasks"
+        Effect   = "Allow"
+        Action   = "ecs:DescribeTasks"
+        Resource = "arn:aws:ecs:${var.aws_region}:${local.account_id}:task/${local.cluster_name}/*"
+      },
+      {
+        # RunTask passes the task role and the execution role of the revision it starts.
+        Sid      = "PassTheResearchTaskRoles"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = [aws_iam_role.plane["research"].arn, aws_iam_role.task_execution.arn]
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }
+        }
+      },
+      {
+        # GetLogEvents is evaluated against the stream ARN (log-group:<name>:log-stream:<stream>), which the second
+        # form covers. Literal ARNs: the group's .arn is unknown until apply and would hide this policy in the plan.
+        Sid    = "ReadTheResearchLogs"
+        Effect = "Allow"
+        Action = "logs:GetLogEvents"
+        Resource = [
+          "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/ecs/pmbot/research",
+          "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/ecs/pmbot/research:*",
+        ]
       },
     ]
   })
