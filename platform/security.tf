@@ -4,22 +4,19 @@ resource "aws_security_group" "web_dmz" {
   vpc_id      = aws_vpc.base_vpc.id
 }
 
-resource "aws_security_group_rule" "ssh_ingress" {
-  type              = "ingress"
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = aws_security_group.web_dmz.id
-}
-
+# Dynamic host ports (bridge-mode containers) are reachable from the ALB only.
+# No SSH: the host has no key pair; Session Manager is the way in.
 resource "aws_security_group_rule" "http_ingress" {
-  type              = "ingress"
-  from_port         = 1024
-  to_port           = 65535
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = aws_security_group.web_dmz.id
+  type                     = "ingress"
+  from_port                = 1024
+  to_port                  = 65535
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.alb_sg.id
+  security_group_id        = aws_security_group.web_dmz.id
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_security_group_rule" "allow_all_egress_to_alb" {
