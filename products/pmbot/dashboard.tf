@@ -13,8 +13,7 @@ locals {
   # The five long-running services plus pmbot-status (not in local.services).
   dashboard_services = concat(keys(local.services), ["status"])
 
-  # Every pmbot alarm of alarms.tf on this base (PR 2 is independent of PR 1: the status, data-stale and maker alarms
-  # of EP-035 PR 1 are added to this list when that PR is merged). A new alarm shows up here by editing this one list. Unknown until the alarms
+  # Every pmbot alarm of alarms.tf; a new alarm shows up here by editing this one list. Unknown until the alarms
   # exist: a plan that creates them shows the body as known after apply.
   dashboard_alarm_arns = concat(
     [for alarm in aws_cloudwatch_metric_alarm.service_down : alarm.arn],
@@ -24,6 +23,11 @@ locals {
     aws_cloudwatch_metric_alarm.predictor_stale[*].arn,
     [aws_cloudwatch_metric_alarm.maker_stale_predictions.arn],
     [aws_cloudwatch_metric_alarm.s3_put_forbidden.arn],
+    [aws_cloudwatch_metric_alarm.maker_critical.arn],
+    [aws_cloudwatch_metric_alarm.maker_kill_switch.arn],
+    [aws_cloudwatch_metric_alarm.maker_ticks.arn],
+    aws_cloudwatch_metric_alarm.status_not_publishing[*].arn,
+    [for alarm in aws_cloudwatch_metric_alarm.data_stale : alarm.arn],
   )
 
   dashboard_service_metrics = {
