@@ -82,5 +82,39 @@ class FamilyPlane(unittest.TestCase):
         self.assertEqual(passed, scheduled)
 
 
+class FamilyTarget(unittest.TestCase):
+    PLANE_TARGET = {"collect": "collect", "model": "model", "paper": "trade", "research": "research"}
+
+    def test_every_task_has_a_target_and_the_target_matches_its_plane(self) -> None:
+        targets, planes = string_map("family_target"), string_map("family_plane")
+        self.assertEqual(set(targets), task_names())
+        for family, plane in planes.items():
+            with self.subTest(family=family):
+                self.assertEqual(targets[family], self.PLANE_TARGET[plane])
+
+    def test_the_expected_targets(self) -> None:
+        """Twin of polymarket-bot sports/ops/images.py FAMILY_TARGET."""
+        self.assertEqual(string_map("family_target"), {
+            "recorder": "collect", "ingame-capture": "collect", "xvenue-poller": "collect",
+            "rewards-poll": "collect", "daily-ingest": "model", "predictor": "model", "maker-paper": "trade"})
+
+    def test_the_container_image_is_the_per_target_tag(self) -> None:
+        """Mutation-checked: put `local.image_repo:${var.image_tag}` back (no suffix) and this fails."""
+        text = read("services.tf")
+        self.assertIn('image             = "${local.image_repo}:${var.image_tag}-${local.family_target[name]}"', text)
+        self.assertNotIn("local.image}", text)
+
+
+class ImageTag(unittest.TestCase):
+    LEGACY_BOOTSTRAP_TAG = "3ee91acf540d1c6d4f0edd7c251d85ffec593738"   # CH-007: one unsuffixed image, no -<target> tags
+
+    def test_image_tag_is_a_post_split_sha(self) -> None:
+        """Every task definition now runs <image_tag>-<target>; the pre-split SHA has no such tags in ECR."""
+        match = re.search(r'variable "image_tag" \{.*?default\s*=\s*"([^"]+)"', read("variables.tf"), re.S)
+        self.assertIsNotNone(match)
+        self.assertRegex(match.group(1), r"^[0-9a-f]{40}$")  # type: ignore[union-attr]
+        self.assertNotEqual(match.group(1), self.LEGACY_BOOTSTRAP_TAG)  # type: ignore[union-attr]
+
+
 if __name__ == "__main__":
     unittest.main()
