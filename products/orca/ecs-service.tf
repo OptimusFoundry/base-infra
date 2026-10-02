@@ -107,12 +107,13 @@ resource "aws_ecs_task_definition" "api" {
 }
 
 resource "aws_ecs_service" "api" {
-  name            = var.service_name_api
-  cluster         = data.terraform_remote_state.platform.outputs.ecs_cluster_id
-  desired_count   = var.api_desired_count
-  launch_type     = "EC2"
-  task_definition = aws_ecs_task_definition.api.arn
-  iam_role        = data.terraform_remote_state.platform.outputs.ecs_service_role_name
+  name                 = var.service_name_api
+  cluster              = data.terraform_remote_state.platform.outputs.ecs_cluster_id
+  desired_count        = var.api_desired_count
+  launch_type          = "EC2"
+  task_definition      = aws_ecs_task_definition.api.arn
+  iam_role             = data.terraform_remote_state.platform.outputs.ecs_service_role_name
+  force_new_deployment = true
 
   load_balancer {
     container_name   = var.container_name_api

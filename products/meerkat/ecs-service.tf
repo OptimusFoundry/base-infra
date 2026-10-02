@@ -4,12 +4,13 @@ resource "aws_cloudwatch_log_group" "ecs_log_group" {
 }
 
 resource "aws_ecs_service" "ecs_service" {
-  name            = var.service_name_api
-  cluster         = data.terraform_remote_state.platform.outputs.ecs_cluster_id
-  desired_count   = 1
-  launch_type     = "EC2"
-  task_definition = aws_ecs_task_definition.task_definition.arn
-  iam_role        = data.terraform_remote_state.platform.outputs.ecs_service_role_name
+  name                 = var.service_name_api
+  cluster              = data.terraform_remote_state.platform.outputs.ecs_cluster_id
+  desired_count        = 1
+  launch_type          = "EC2"
+  task_definition      = aws_ecs_task_definition.task_definition.arn
+  iam_role             = data.terraform_remote_state.platform.outputs.ecs_service_role_name
+  force_new_deployment = true
 
   load_balancer {
     container_name   = var.container_name_api

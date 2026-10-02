@@ -100,11 +100,12 @@ resource "aws_ecs_task_definition" "capture_worker" {
 // /health gates the task; nothing on the ALB points here.
 
 resource "aws_ecs_service" "capture_worker" {
-  name            = var.capture_worker_service_name
-  cluster         = data.terraform_remote_state.platform.outputs.ecs_cluster_id
-  desired_count   = 1
-  launch_type     = "EC2"
-  task_definition = aws_ecs_task_definition.capture_worker.arn
+  name                 = var.capture_worker_service_name
+  cluster              = data.terraform_remote_state.platform.outputs.ecs_cluster_id
+  desired_count        = 1
+  launch_type          = "EC2"
+  task_definition      = aws_ecs_task_definition.capture_worker.arn
+  force_new_deployment = true
 
   // Stop-then-start deploys. The shared EC2 instance has no CPU headroom for
   // a second 512-unit task, so the default 100%/200% rolling deploy

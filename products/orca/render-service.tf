@@ -92,9 +92,10 @@ resource "aws_ecs_task_definition" "render_service" {
 }
 
 resource "aws_ecs_service" "render_service" {
-  name            = var.render_service_name
-  cluster         = data.terraform_remote_state.platform.outputs.ecs_cluster_id
-  desired_count   = var.render_service_desired_count
-  launch_type     = "EC2"
-  task_definition = aws_ecs_task_definition.render_service.arn
+  name                 = var.render_service_name
+  cluster              = data.terraform_remote_state.platform.outputs.ecs_cluster_id
+  desired_count        = var.render_service_desired_count
+  launch_type          = "EC2"
+  task_definition      = aws_ecs_task_definition.render_service.arn
+  force_new_deployment = true
 }
