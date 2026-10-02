@@ -6,7 +6,9 @@
 #   CloudFront            On the platform's *.protoapp.xyz wildcard certificate; status.json is never cached.
 #   pmbot-status          ECS service writing status.json from the data bucket (STATUS_SOURCE=s3: each family has
 #                         its own volume, so no local /data holds everything). Task role pmbot-status may list
-#                         sports/, read the maker's journal and flags, and PutObject status.json. Nothing else.
+#                         sports/, read the maker's journal and flags, and PutObject status.json (its only write),
+#                         plus the read-only ECS / CloudWatch (and, in ce mode, Cost Explorer) calls for the page's
+#                         Services, Jobs, Alarms and Cost panels (EP-035). Parked at desired count 0; scaled by hand.
 #
 # Hand-built rather than modules/product: the module always creates an ALB target group and listener
 # rule, and this site has no API.
@@ -22,12 +24,17 @@ locals {
   security_headers_policy = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
   # The writer's whole environment (plus PMBOT_GIT_SHA, injected by pmbot-deploy). Not local.common_env:
-  # it never syncs (SPORTS_S3=off) and reads the data bucket directly (STATUS_SOURCE=s3).
+  # it never syncs (SPORTS_S3=off) and reads the data bucket directly (STATUS_SOURCE=s3). EP-035: STATUS_AWS=on
+  # turns on the read-only ECS and CloudWatch views; STATUS_COST_SOURCE picks the cost view; STATUS_CLUSTER is
+  # the cluster the services run on (the writer has no default and refuses to start without it).
   status_env = {
     SPORTS_S3          = "off"
     STATUS_SOURCE      = "s3"
     SPORTS_S3_BUCKET   = var.data_bucket
     STATUS_SITE_BUCKET = local.site_bucket
+    STATUS_AWS         = "on"
+    STATUS_COST_SOURCE = var.status_cost_source
+    STATUS_CLUSTER     = local.cluster_name
     AWS_REGION         = var.aws_region
     AWS_DEFAULT_REGION = var.aws_region
     PYTHONUNBUFFERED   = "1"
@@ -175,42 +182,79 @@ resource "aws_iam_role_policy" "status" {
   name = "pmbot-status"
   role = aws_iam_role.status.name
 
+  # ListData / ReadTheMakerJournal feed the S3 mirror (STATUS_SOURCE=s3). EP-035 adds the writer's read-only
+  # views, each a Describe/Get call. Scoping, and what a wrong guess costs (an AccessDenied makes that page
+  # section `error`; it never widens anything or blanks the page):
+  #   ecs:DescribeServices      this cluster's pmbot-* services only (resource-level supported); the cluster is
+  #                             the shared ecs-cluster, so the scope keeps other products' services out.
+  #   cloudwatch:GetMetricData  no resource-level support: "*".
+  #   cloudwatch:DescribeAlarms no resource-level permissions: "*" (names and states only; the writer asks for
+  #                             the pmbot- prefix).
+  #   ce:GetCostAndUsage        no resource-level support: "*", and only while var.status_cost_source is "ce".
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Sid      = "ListData"
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket"]
-        Resource = "arn:aws:s3:::${var.data_bucket}"
-        Condition = {
-          StringLike = { "s3:prefix" = ["sports/*"] }
-        }
-      },
-      {
-        Sid      = "ReadTheMakerJournal"
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "arn:aws:s3:::${var.data_bucket}/sports/live/maker/*"
-      },
-      {
-        Sid      = "PublishStatusJsonOnly"
-        Effect   = "Allow"
-        Action   = ["s3:PutObject"]
-        Resource = "${aws_s3_bucket.site.arn}/status.json"
-      },
-      {
-        Sid    = "EcsExecChannels"
-        Effect = "Allow"
-        Action = [
-          "ssmmessages:CreateControlChannel",
-          "ssmmessages:CreateDataChannel",
-          "ssmmessages:OpenControlChannel",
-          "ssmmessages:OpenDataChannel",
-        ]
-        Resource = "*"
-      },
-    ]
+    Statement = concat(
+      [
+        {
+          Sid      = "ListData"
+          Effect   = "Allow"
+          Action   = ["s3:ListBucket"]
+          Resource = "arn:aws:s3:::${var.data_bucket}"
+          Condition = {
+            StringLike = { "s3:prefix" = ["sports/*"] }
+          }
+        },
+        {
+          Sid      = "ReadTheMakerJournal"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
+          Resource = "arn:aws:s3:::${var.data_bucket}/sports/live/maker/*"
+        },
+        {
+          Sid      = "PublishStatusJsonOnly"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject"]
+          Resource = "${aws_s3_bucket.site.arn}/status.json"
+        },
+        {
+          Sid    = "EcsExecChannels"
+          Effect = "Allow"
+          Action = [
+            "ssmmessages:CreateControlChannel",
+            "ssmmessages:CreateDataChannel",
+            "ssmmessages:OpenControlChannel",
+            "ssmmessages:OpenDataChannel",
+          ]
+          Resource = "*"
+        },
+        {
+          Sid      = "DescribePmbotServices"
+          Effect   = "Allow"
+          Action   = ["ecs:DescribeServices"]
+          Resource = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${local.cluster_name}/pmbot-*"
+        },
+        {
+          Sid      = "ReadPmbotMetrics"
+          Effect   = "Allow"
+          Action   = ["cloudwatch:GetMetricData"]
+          Resource = "*"
+        },
+        {
+          Sid      = "DescribePmbotAlarms"
+          Effect   = "Allow"
+          Action   = ["cloudwatch:DescribeAlarms"]
+          Resource = "*"
+        },
+      ],
+      var.status_cost_source == "ce" ? [
+        {
+          Sid      = "ReadPmbotCost"
+          Effect   = "Allow"
+          Action   = ["ce:GetCostAndUsage"]
+          Resource = "*"
+        },
+      ] : [],
+    )
   })
 }
 

@@ -17,7 +17,7 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-task` (legacy), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
 | GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy` (polymarket-bot `main`, OIDC) |
 | Logs | `/ecs/pmbot/<family>`, 30 days |
-| Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden — all to `platform-alerts` |
+| Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden, and the EP-035 per-plane alarms (section "Alarms by plane") — all to `platform-alerts` |
 | Status site | `pmbot.protoapp.xyz`: bucket `pmbot-site-<account>` + CloudFront on the platform wildcard cert + Cloudflare record |
 | Manifest | `/pmbot/manifest` |
 
@@ -62,3 +62,60 @@ in `local.planes` (`iam.tf`).
   `ecs_container_insights = true` in `platform` for the measurement window, then back to `false`.
 - **Legacy `pmbot-task` role:** kept so a rollback to a pre-plane-split revision still runs. Remove it from
   config (and from the two PassRole lists) when that rollback is no longer wanted.
+
+## Status writer (EP-035)
+
+- **Data.** `pmbot-status` mounts no data volume: with `STATUS_SOURCE=s3` it mirrors the few `sports/` prefixes it
+  reads from the data bucket into a per-tick scratch directory (polymarket-bot `sports/ops/status_mirror.py`). It sees a
+  source when that source uploads, so the page cannot show host-local upload-queue depth (`s3_queues` is always empty);
+  the maker's kill switch and live journal do come through the mirror.
+- **IAM.** `pmbot-status` may `PutObject` `status.json` (its only write), open ECS Exec channels, list `sports/*` and
+  read `sports/live/maker/*` on the data bucket (the mirror), and make four read-only calls: `ecs:DescribeServices` on
+  this cluster's `pmbot-*` services, `cloudwatch:GetMetricData` (`*`: no resource-level support),
+  `cloudwatch:DescribeAlarms` (`*`: no resource-level permissions; names and states only) and, only while
+  `status_cost_source = "ce"`, `ce:GetCostAndUsage` (`*`). A missing grant makes that page section show `error`; it
+  never blanks the page.
+- **Environment.** `STATUS_AWS=on`, `STATUS_COST_SOURCE=var.status_cost_source`, `STATUS_CLUSTER=local.cluster_name`
+  (required by the writer, which has no cluster default).
+- **Cost source** (`status_cost_source`). `estimate` (default): pmbot's share of the shared host by reserved memory at
+  list price. `ce`: that share month to date plus Cost Explorer's actual for the `Product=pmbot`-tagged lines (CloudWatch,
+  site bucket, CloudFront, ECR); the host is the platform's and never appears under the tag. `ce` needs the `Product`
+  cost-allocation tag activated (Billing console; up to 24 h) and asks once a day at $0.01 a request. `off`: no panel.
+- **Changing any of this** replaces `aws_ecs_task_definition.status` (a new revision); the service keeps its revision
+  until the next `pmbot-deploy`. Expect `1 to add, 1 to change, 1 to destroy` when the role policy changes too.
+
+## Alarms by plane (EP-035)
+
+Every alarm notifies `local.alerts_topic_arn`, the platform's `platform-alerts` topic, on ALARM and on OK; its one email
+subscription goes to the owner. pmbot creates no SNS topic. An unconfirmed subscription (`PendingConfirmation` in
+`aws sns list-subscriptions-by-topic`) delivers nothing. Custom metrics are in namespace `pmbot`, from log metric
+filters with quoted-term patterns on the task log groups (the containers log with structlog's console renderer, and a
+quoted term matches the JSON renderer too). Runbook: polymarket-bot `docs/runbooks/ops.md`.
+
+| Plane | Alarm | Fires when | Missing data | Exists |
+|---|---|---|---|---|
+| collect | `pmbot-recorder-not-running`, `pmbot-ingame-capture-not-running`, `pmbot-xvenue-poller-not-running`, `pmbot-rewards-poll-not-running` | no `AWS/ECS` `CPUUtilization` sample for 5 x 60 s (no running task) | breaching | always |
+| collect | `pmbot-recorder-data-stale`, `pmbot-xvenue-poller-data-stale`, `pmbot-rewards-poll-data-stale` | the status writer logged `status_tile_stale tile=<name>` in each of 3 x 5 min (the tile is past its own stale limit plus 15 min) | notBreaching | `status_alarms_enabled` |
+| model | `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing` | `daily_ingest_failed` logged; no `daily_ingest_ok` for 26 h | notBreaching; breaching | always |
+| model | `pmbot-predictor-failed`, `pmbot-predictor-stale` | `predictor_failed` logged; no `predictor_ok` for 4 x 15 min | notBreaching; breaching | `predictor_enabled` |
+| paper | `pmbot-maker-paper-not-running` | no running task for 5 x 60 s | breaching | always |
+| paper | `pmbot-maker-stale-predictions` | a market refused as `stale_predictions` | notBreaching | always |
+| paper | `pmbot-maker-paper-critical` | any event of `local.maker_critical_events` in 5 min (`tick_failed`, `journal_corrupt_engine_halted`, `engine_halted`, `post_unknown`, ...) | notBreaching | always |
+| paper | `pmbot-maker-paper-kill-switch` | `kill_idle` or `kill_orders_remaining` in 5 min (the KILL file is on) | notBreaching | always |
+| paper | `pmbot-maker-paper-no-ticks` | no `tick` event for 3 x 5 min | breaching | always |
+| live | none yet | EP-033 mirrors the paper set on `maker-live` | | |
+| research | none yet | EP-034 adds the research job's outcome alarms | | |
+| ops | `pmbot-status-not-publishing` | no `status_published` for 3 x 5 min | breaching | `status_alarms_enabled` |
+| any | `pmbot-s3-put-forbidden` | an `s3_put_forbidden` line in any task log | notBreaching | always |
+
+- **`status_alarms_enabled`** (default `false`): `pmbot-status` ships parked at desired 0 and a breaching `StatusPublished`
+  alarm would sit in ALARM. Flip the default to `true` by a one-line PR (owner apply) once the writer has published for
+  15 minutes. The filters behind both alarms are always on, so the metrics already have history when it flips.
+- **Scaling the maker to 0** (the kill-switch runbook) also trips `pmbot-maker-paper-not-running` and, after 15 minutes,
+  `pmbot-maker-paper-no-ticks`: expected.
+- **Not alarmed, on purpose:** `ingame-capture` staleness (it writes only during games) and the predictor tiles (the two
+  predictor alarms cover them); the maker's loss cap (a journaled refusal, not a log event); `pmbot-status` in
+  `service_down` (`pmbot-status-not-publishing` is stricter).
+- **`tick` is a substring term:** it also matches `tick_failed` lines, which `pmbot-maker-paper-critical` reports anyway.
+- **The event names live in polymarket-bot** (`sports/trading/run.py`, `engine.py`, `sports/ops/status_page.py`); a
+  rename there blinds the matching filter silently. Re-check them whenever those files change.
