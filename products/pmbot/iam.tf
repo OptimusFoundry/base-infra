@@ -1,16 +1,13 @@
-# Task roles: what the containers themselves may do. Execution role: what ECS may do to
-# start them (pull the image, write logs). No secret reaches any task.
+# Task roles: what the containers may do. Execution role: what ECS may do to start them (pull the
+# image, write logs). No secret reaches any task, and no role here may read SSM parameters.
 #
-# EP-031 (spec section 7): one task role per plane, pmbot-task-<plane>, each allowed to PutObject only under its
-# own key prefixes. The legacy pmbot-task role below stays: revisions registered before the split, and a
-# rollback to one, still run as it. Nothing here grants any SSM parameter access: only the future
-# pmbot-task-live role will read /pmbot/live/* (EP-033), and ci/plan_guard.py refuses it anywhere else.
+# One task role per plane (pmbot-task-<plane>), each allowed to PutObject only under its own key
+# prefixes of the data bucket, never to delete.
 
 locals {
-  # write_prefixes are key prefixes under the data bucket's sports/ prefix (SPORTS_S3_PREFIX), i.e. the path
-  # relative to SPORTS_DATA_ROOT. ci/plan_guard.py PLANE_WRITE_PREFIXES must equal them
-  # (ci/test_plan_guard.py parses this block). exec: the plane's tasks run with enable_execute_command, so
-  # the role needs the ssmmessages channels (a debug shell, not parameter access).
+  # write_prefixes are key prefixes under the bucket's sports/ prefix, i.e. paths relative to
+  # SPORTS_DATA_ROOT. exec: the plane's tasks run with enable_execute_command, so the role needs the
+  # ssmmessages channels (a debug shell, not parameter access).
   planes = {
     collect = {
       exec           = true
@@ -21,7 +18,7 @@ locals {
       write_prefixes = ["nba/", "nhl/", "predictions/", "recorder/nba_injury/"]
     }
     paper = {
-      # nba/injury_parsed/: the inline maker path's injury-PDF parse cache, until CHORE-015 removes that path.
+      # nba/injury_parsed/: the inline maker path's injury-PDF parse cache.
       exec           = true
       write_prefixes = ["live/maker/journal.paper.", "live/prices/", "live/tape/", "nba/injury_parsed/"]
     }
@@ -51,9 +48,9 @@ resource "aws_iam_role" "task" {
   })
 }
 
-# LEGACY (EP-031): bucket-wide write, kept for rollback to a pre-split revision. It lost its SSM parameter
-# statement (nothing under sports/ reads SSM). Delete the role and this policy by hand after two weeks on the
-# plane roles (plan_guard refuses an aws_iam_role delete); ci/plan_guard.py lets this policy only shrink.
+# LEGACY: bucket-wide write, kept only so a rollback to a revision from before the per-plane split
+# still runs. Remove this role and policy from config (and from the two PassRole lists) once no
+# rollback that far back is wanted — ordinary Terraform destroy, no hand-deletion.
 resource "aws_iam_role_policy" "task" {
   name = "pmbot-task"
   role = aws_iam_role.task.name
@@ -120,8 +117,8 @@ resource "aws_iam_role" "plane" {
   })
 }
 
-# Reads stay bucket-wide under sports/ (the inline maker path reads tables and recorder rows until CHORE-015);
-# writes are object ARNs under the plane's own prefixes; deletes and bucket changes are denied outright.
+# Reads stay bucket-wide under sports/; writes are object ARNs under the plane's own prefixes;
+# deletes and bucket changes are denied outright.
 resource "aws_iam_role_policy" "plane" {
   for_each = local.planes
 

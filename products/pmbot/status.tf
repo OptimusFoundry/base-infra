@@ -1,15 +1,14 @@
-# Public status page (polymarket-bot CH-009): https://pmbot.protoapp.xyz
+# Public status page: https://pmbot.protoapp.xyz
 #
-#   pmbot-site-<account>  Private S3 bucket. Only this CloudFront distribution may read it (OAC). The pmbot-status
-#                         task writes status.json every 60 s; polymarket-bot's pmbot-site.yml (as pmbot-github-deploy)
-#                         uploads index.html, scoreboard.json and assets/.
-#   CloudFront            The platform's *.protoapp.xyz wildcard certificate; status.json is never cached at the edge.
-#   pmbot-status          ECS service running `python -m sports.ops.status_page loop` on the collect image, /data
-#                         mounted read-only, SPORTS_S3=off. Task role pmbot-status: PutObject status.json, nothing else.
-#                         Created at desired count 0: its Terraform-registered revision carries the bootstrap image,
-#                         which has no status_page; the README "Status page" step scales it to 1 after a deploy.
-# The DNS record is products/pmbot/dns (owner-applied: it needs the Cloudflare key, which CD never reads).
-# The task role is not named pmbot-task-*: those are the per-plane data roles plan_guard scope-checks (EP-031).
+#   pmbot-site-<account>  Private S3 bucket that only this CloudFront distribution may read (OAC). The
+#                         pmbot-status task writes status.json every 60 s; polymarket-bot's pmbot-site.yml
+#                         (as pmbot-github-deploy) uploads index.html, scoreboard.json and assets/.
+#   CloudFront            On the platform's *.protoapp.xyz wildcard certificate; status.json is never cached.
+#   pmbot-status          ECS service writing status.json, data mounted read-only. Task role pmbot-status may
+#                         PutObject status.json and nothing else. Parked at desired count 0; scaled by hand.
+#
+# Hand-built rather than modules/product: the module always creates an ALB target group and listener
+# rule, and this site has no API.
 
 locals {
   site_domain = "pmbot.${data.terraform_remote_state.platform.outputs.zone_domain}"
@@ -21,8 +20,8 @@ locals {
   cache_policy_disabled   = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
   security_headers_policy = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
-  # The writer's whole environment (plus PMBOT_GIT_SHA, injected by pmbot-deploy). Not local.common_env: the writer
-  # never syncs /data (SPORTS_S3=off) and has no upload queue.
+  # The writer's whole environment (plus PMBOT_GIT_SHA, injected by pmbot-deploy). Not local.common_env:
+  # it never syncs /data (SPORTS_S3=off) and has no upload queue.
   status_env = {
     SPORTS_DATA_ROOT   = "/data"
     SPORTS_S3          = "off"
@@ -122,7 +121,7 @@ resource "aws_cloudfront_distribution" "site" {
     response_headers_policy_id = local.security_headers_policy
   }
 
-  # Rewritten every 60 s: never cached at the edge, so the page's age check sees the real age (CH-009 ruling 7).
+  # Rewritten every 60 s: never cached at the edge, so the page's age check sees the real age.
   ordered_cache_behavior {
     path_pattern               = "/status.json"
     allowed_methods            = ["GET", "HEAD"]
@@ -246,64 +245,34 @@ resource "aws_ecs_task_definition" "status" {
     name      = "data"
     host_path = "/data"
   }
-
-  placement_constraints {
-    type       = "memberOf"
-    expression = local.placement_expression
-  }
 }
 
 resource "aws_ecs_service" "status" {
-  name            = "pmbot-status"
-  cluster         = aws_ecs_cluster.pmbot.id
-  task_definition = aws_ecs_task_definition.status.arn
-  desired_count   = 0
-
-  capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.pmbot.name
-    weight            = 1
-    base              = 1
-  }
+  name                 = "pmbot-status"
+  cluster              = local.cluster_id
+  launch_type          = "EC2"
+  task_definition      = aws_ecs_task_definition.status.arn
+  desired_count        = 0
+  force_new_deployment = true
 
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 100
   enable_execute_command             = true
 
-  placement_constraints {
-    type       = "memberOf"
-    expression = local.placement_expression
-  }
-
-  depends_on = [aws_ecs_cluster_capacity_providers.pmbot]
-
-  # desired_count: parked at 0 until the first deploy, then scaled by hand (README "Status page"); an apply never
-  # undoes that. task_definition: polymarket-bot's pmbot-deploy owns the running revision (CH-008).
+  # desired_count: scaled by hand; an apply never undoes that. task_definition: pmbot-deploy owns
+  # the running revision.
   lifecycle {
     ignore_changes = [desired_count, task_definition]
   }
 }
 
-output "site_bucket_name" {
-  value       = aws_s3_bucket.site.bucket
-  description = "PMBOT_SITE_BUCKET repository variable in OptimusFoundry/polymarket-bot"
-}
+# --- DNS ---
 
-output "site_distribution_id" {
-  value       = aws_cloudfront_distribution.site.id
-  description = "PMBOT_SITE_DISTRIBUTION_ID repository variable in OptimusFoundry/polymarket-bot"
-}
-
-output "site_distribution_domain_name" {
-  value       = aws_cloudfront_distribution.site.domain_name
-  description = "CNAME target of the pmbot.protoapp.xyz record (products/pmbot/dns)"
-}
-
-output "site_domain" {
-  value       = local.site_domain
-  description = "The status page's hostname"
-}
-
-output "status_service_name" {
-  value       = aws_ecs_service.status.name
-  description = "ECS service that writes status.json (cluster pmbot)"
+resource "cloudflare_dns_record" "site" {
+  zone_id = data.terraform_remote_state.platform.outputs.cloudflare_zone_id
+  name    = local.site_domain
+  type    = "CNAME"
+  content = aws_cloudfront_distribution.site.domain_name
+  ttl     = 1
+  proxied = false
 }

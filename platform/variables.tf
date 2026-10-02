@@ -50,3 +50,20 @@ variable "github_oidc_allowed_subjects" {
     "repo:OptimusFoundry@167594521/AITravel@1312039071:ref:refs/heads/main",
   ]
 }
+
+variable "ecs_instance_type" {
+  description = "Instance type of the single shared ECS host (Graviton/arm64). Changing it updates the launch template; the running host is only replaced when terminated."
+  type        = string
+  default     = "t4g.2xlarge"
+}
+
+variable "ecs_root_volume_gb" {
+  description = "Root volume of the shared ECS host. Holds every product's images and pmbot's data volumes; the AMI snapshot floor is 30."
+  type        = number
+  default     = 100
+
+  validation {
+    condition     = var.ecs_root_volume_gb >= 30
+    error_message = "ecs_root_volume_gb must be at least 30 (the AMI snapshot size)."
+  }
+}

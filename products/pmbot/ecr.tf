@@ -1,5 +1,4 @@
-# IMMUTABLE: CI pushes one tag per git SHA and a tag can never be overwritten, so a
-# deploy (image_tag) and a rollback (the previous image_tag) are exact.
+# IMMUTABLE: CI pushes one tag per git SHA and target, so a deploy and a rollback are exact.
 resource "aws_ecr_repository" "pmbot" {
   name                 = local.name
   image_tag_mutability = "IMMUTABLE"
@@ -14,9 +13,8 @@ resource "aws_ecr_repository" "pmbot" {
   }
 }
 
-# Keep the 120 newest images; older SHAs age out. Since EP-031 every push is four distinct images (collect,
-# model, trade and research, the last also tagged with the bare SHA), so 120 is still about 30 pushes of
-# rollback window (it was 30 images = 30 pushes). A rollback further back needs a rebuild.
+# Every push is four images (collect, model, trade, research), so 120 is about 30 pushes of
+# rollback window. A rollback further back needs a rebuild.
 resource "aws_ecr_lifecycle_policy" "pmbot" {
   repository = aws_ecr_repository.pmbot.name
 
@@ -32,9 +30,4 @@ resource "aws_ecr_lifecycle_policy" "pmbot" {
       action = { type = "expire" }
     }]
   })
-}
-
-output "ecr_repository_url" {
-  value       = aws_ecr_repository.pmbot.repository_url
-  description = "ECR repository URL CI pushes to and the task definitions pull from"
 }

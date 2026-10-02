@@ -73,38 +73,96 @@ data "aws_ssm_parameter" "ecs_optimized_arm64_ami" {
   name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id"
 }
 
-# Launch Configuration for AutoScaling Group
-# Defines the EC2 launch configuration for ECS instances with SSM support.
-resource "aws_launch_configuration" "app_launch_config_with_ssm" {
-  name_prefix          = "app-launch-config-with-ssm-"                        # Use name_prefix instead of name for create_before_destroy
-  image_id             = data.aws_ssm_parameter.ecs_optimized_arm64_ami.value # ECS-optimized AL2023 (arm64)
-  instance_type        = "t4g.large"                                          # Graviton (2 vCPU, 8 GB, ~$49/month)
-  security_groups      = [aws_security_group.web_dmz.id]                      # Security group for the instances
-  iam_instance_profile = aws_iam_instance_profile.ecs_instance_profile.name   # Instance profile for EC2
-  # User data to set ECS cluster
-  user_data = <<-EOF
+# Launch template for the single ECS host every product runs on, pmbot included.
+#
+# t4g.2xlarge (8 vCPU, 32 GB): the web products reserve ~1,900 CPU units / 4.6 GB
+# and pmbot ~3,300 / 7.9 GB, with headroom for rolling API deploys. Changing the
+# type updates the template in place; the running instance only picks it up when
+# it is replaced (no instance_refresh), so a resize is: apply, then terminate the
+# instance and let the ASG launch a new one — a few minutes of downtime for every
+# product.
+resource "aws_launch_template" "ecs_host" {
+  name_prefix            = "ecs-host-"
+  image_id               = data.aws_ssm_parameter.ecs_optimized_arm64_ami.value
+  instance_type          = var.ecs_instance_type
+  vpc_security_group_ids = [aws_security_group.web_dmz.id]
+  update_default_version = true
+
+  iam_instance_profile {
+    name = aws_iam_instance_profile.ecs_instance_profile.name
+  }
+
+  # Pinned so an account-default change cannot silently drop the host to the
+  # "standard" 40%-per-vCPU baseline under pmbot's CPU-bound predictor runs.
+  credit_specification {
+    cpu_credits = "unlimited"
+  }
+
+  # Matches what the previous launch configuration produced (IMDSv2, hop limit 2).
+  # Hop limit 2 lets bridge-mode containers reach the instance role; dropping it to
+  # 1 is a separate change, after confirming no app relies on instance credentials.
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
+  # ECS_ENABLE_TASK_IAM_ROLE: pmbot's bridge-mode tasks run with task roles.
+  # ECS_RESERVED_MEMORY: keeps 512 MiB for the OS and agent out of scheduling.
+  user_data = base64encode(<<-EOF
     #!/bin/bash
     sudo yum install -y amazon-ssm-agent
     sudo systemctl start amazon-ssm-agent
     sudo systemctl enable amazon-ssm-agent
 
     sudo dnf install -y ec2-instance-connect
-    echo ECS_CLUSTER=${aws_ecs_cluster.ecs_cluster.id} >> /etc/ecs/ecs.config
+    cat >> /etc/ecs/ecs.config <<'ECSCONFIG'
+    ECS_CLUSTER=${aws_ecs_cluster.ecs_cluster.name}
+    ECS_ENABLE_TASK_IAM_ROLE=true
+    ECS_RESERVED_MEMORY=512
+    ECSCONFIG
   EOF
+  )
+
+  # Docker images and pmbot's per-family data volumes live on the root volume.
+  block_device_mappings {
+    device_name = data.aws_ami.ecs_optimized_arm64.root_device_name
+
+    ebs {
+      volume_size           = var.ecs_root_volume_gb
+      volume_type           = "gp3"
+      encrypted             = true
+      delete_on_termination = true
+    }
+  }
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
+data "aws_ami" "ecs_optimized_arm64" {
+  owners = ["amazon"]
+
+  filter {
+    name   = "image-id"
+    values = [data.aws_ssm_parameter.ecs_optimized_arm64_ami.value]
+  }
+}
+
 # AutoScaling Group
 # AutoScaling group to manage ECS instances.
 resource "aws_autoscaling_group" "ecs_autoscaling" {
-  vpc_zone_identifier  = [aws_subnet.public_subnet_a.id, aws_subnet.public_subnet_b.id] # Subnets for the ASG
-  min_size             = 1                                                              # Minimum number of instances
-  max_size             = 1                                                              # Maximum number of instances
-  desired_capacity     = 1                                                              # Desired number of instances
-  launch_configuration = aws_launch_configuration.app_launch_config_with_ssm.name       # Reference the launch config
+  vpc_zone_identifier = [aws_subnet.public_subnet_a.id, aws_subnet.public_subnet_b.id] # Subnets for the ASG
+  min_size            = 1                                                              # Minimum number of instances
+  max_size            = 1                                                              # Maximum number of instances
+  desired_capacity    = 1                                                              # Desired number of instances
+
+  launch_template {
+    id      = aws_launch_template.ecs_host.id
+    version = aws_launch_template.ecs_host.latest_version
+  }
+
   tag {
     key                 = "Name"
     value               = "ECS AutoScaling Group"

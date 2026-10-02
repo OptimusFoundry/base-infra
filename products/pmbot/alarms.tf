@@ -1,21 +1,21 @@
-# Liveness: the dedicated pmbot cluster has Container Insights enabled, so RunningTaskCount
-# exists per service. Below 1 for five one-minute periods in a row is "no task".
+# Liveness. AWS/ECS publishes a service's CPUUtilization every minute while at least one of its
+# tasks runs and nothing when none does, so five minutes without a datapoint is "no task". Free,
+# unlike Container Insights' RunningTaskCount, which the shared cluster does not enable.
 resource "aws_cloudwatch_metric_alarm" "service_down" {
   for_each = local.services
 
   alarm_name          = "pmbot-${each.key}-not-running"
   alarm_description   = "pmbot-${each.key} has had no running task for 5 minutes."
-  namespace           = "ECS/ContainerInsights"
-  metric_name         = "RunningTaskCount"
-  statistic           = "Average"
+  namespace           = "AWS/ECS"
+  metric_name         = "CPUUtilization"
+  statistic           = "SampleCount"
   comparison_operator = "LessThanThreshold"
   threshold           = 1
   period              = 60
   evaluation_periods  = 5
   datapoints_to_alarm = 5
 
-  # breaching, not notBreaching: a stopped service can stop reporting, and missing data here
-  # means "no task", the outage this alarm exists to catch.
+  # breaching: missing data here means "no task", the outage this alarm exists to catch.
   treat_missing_data = "breaching"
 
   alarm_actions = [local.alerts_topic_arn]
@@ -27,7 +27,7 @@ resource "aws_cloudwatch_metric_alarm" "service_down" {
   }
 }
 
-# Daily ingest outcome, from the two events the CLI logs (T7). The pattern is a quoted
+# Daily ingest outcome, from the two events the CLI logs. The pattern is a quoted
 # term: it matches both the console and the JSON structlog renderers. default_value is
 # left unset on purpose, so a day without the event is missing data, not a zero.
 resource "aws_cloudwatch_log_metric_filter" "daily_ingest_ok" {
@@ -90,7 +90,7 @@ resource "aws_cloudwatch_metric_alarm" "daily_ingest_missing" {
   ok_actions    = [local.alerts_topic_arn]
 }
 
-# Predictor (EP-030). The CLI logs exactly one of predictor_ok / predictor_failed per run (an overlapping
+# Predictor. The CLI logs exactly one of predictor_ok / predictor_failed per run (an overlapping
 # run logs neither). Quoted-term patterns and no default_value, as for the daily ingest.
 resource "aws_cloudwatch_log_metric_filter" "predictor_ok" {
   name           = "pmbot-predictor-ok"
@@ -116,9 +116,8 @@ resource "aws_cloudwatch_log_metric_filter" "predictor_failed" {
   }
 }
 
-# The paper maker, with MAKER_PREDICTIONS_SOURCE=published, journals a refusal with detail
-# stale_predictions for each due market whose partition is missing, stale or bad. Zero events while the
-# source is `inline` (the default), so this alarm is quiet until the flag flips.
+# The paper maker (MAKER_PREDICTIONS_SOURCE=published) journals a refusal with detail
+# stale_predictions for each due market whose published partition is missing, stale or bad.
 resource "aws_cloudwatch_log_metric_filter" "maker_stale_predictions" {
   name           = "pmbot-maker-stale-predictions"
   log_group_name = aws_cloudwatch_log_group.svc["maker-paper"].name
@@ -190,9 +189,9 @@ resource "aws_cloudwatch_metric_alarm" "maker_stale_predictions" {
   ok_actions    = [local.alerts_topic_arn]
 }
 
-# EP-031: sports.core.s3sync parks an upload marker its plane's role was denied and logs s3_put_forbidden once
-# per marker (core/s3sync.py S3Forbidden). One filter per task log group, one shared metric. Always on: it is
-# silent until a plane role lacks a prefix its service writes, and that is exactly when to hear about it.
+# sports.core.s3sync parks an upload its plane's role was denied and logs s3_put_forbidden once per
+# marker. One filter per task log group, one shared metric; silent until a plane role lacks a prefix
+# its service writes.
 resource "aws_cloudwatch_log_metric_filter" "s3_put_forbidden" {
   for_each = local.all_tasks
 

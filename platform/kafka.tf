@@ -318,8 +318,10 @@ resource "aws_ecs_service" "kafka_service" {
   deployment_minimum_healthy_percent = 0
   deployment_maximum_percent         = 100
 
+  # Both subnets: Kafka (awsvpc) can only be placed in the AZ of the single ECS
+  # host, and the ASG may launch that host in either. EFS has a mount target in each.
   network_configuration {
-    subnets         = [aws_subnet.public_subnet_a.id]
+    subnets         = [aws_subnet.public_subnet_a.id, aws_subnet.public_subnet_b.id]
     security_groups = [aws_security_group.kafka_service.id]
   }
 
