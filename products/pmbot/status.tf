@@ -4,8 +4,9 @@
 #                         pmbot-status task writes status.json every 60 s; polymarket-bot's pmbot-site.yml
 #                         (as pmbot-github-deploy) uploads index.html, scoreboard.json and assets/.
 #   CloudFront            On the platform's *.protoapp.xyz wildcard certificate; status.json is never cached.
-#   pmbot-status          ECS service writing status.json, data mounted read-only. Task role pmbot-status may
-#                         PutObject status.json and nothing else. Parked at desired count 0; scaled by hand.
+#   pmbot-status          ECS service writing status.json from the data bucket (STATUS_SOURCE=s3: each family has
+#                         its own volume, so no local /data holds everything). Task role pmbot-status may list
+#                         sports/, read the maker's journal and flags, and PutObject status.json. Nothing else.
 #
 # Hand-built rather than modules/product: the module always creates an ALB target group and listener
 # rule, and this site has no API.
@@ -21,10 +22,11 @@ locals {
   security_headers_policy = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
 
   # The writer's whole environment (plus PMBOT_GIT_SHA, injected by pmbot-deploy). Not local.common_env:
-  # it never syncs /data (SPORTS_S3=off) and has no upload queue.
+  # it never syncs (SPORTS_S3=off) and reads the data bucket directly (STATUS_SOURCE=s3).
   status_env = {
-    SPORTS_DATA_ROOT   = "/data"
     SPORTS_S3          = "off"
+    STATUS_SOURCE      = "s3"
+    SPORTS_S3_BUCKET   = var.data_bucket
     STATUS_SITE_BUCKET = local.site_bucket
     AWS_REGION         = var.aws_region
     AWS_DEFAULT_REGION = var.aws_region
@@ -177,6 +179,21 @@ resource "aws_iam_role_policy" "status" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid      = "ListData"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${var.data_bucket}"
+        Condition = {
+          StringLike = { "s3:prefix" = ["sports/*"] }
+        }
+      },
+      {
+        Sid      = "ReadTheMakerJournal"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "arn:aws:s3:::${var.data_bucket}/sports/live/maker/*"
+      },
+      {
         Sid      = "PublishStatusJsonOnly"
         Effect   = "Allow"
         Action   = ["s3:PutObject"]
@@ -218,12 +235,6 @@ resource "aws_ecs_task_definition" "status" {
       initProcessEnabled = true
     }
 
-    mountPoints = [{
-      sourceVolume  = "data"
-      containerPath = "/data"
-      readOnly      = true
-    }]
-
     environment = [for key, value in local.status_env : { name = key, value = value }]
 
     logConfiguration = {
@@ -239,11 +250,6 @@ resource "aws_ecs_task_definition" "status" {
   runtime_platform {
     cpu_architecture        = "ARM64"
     operating_system_family = "LINUX"
-  }
-
-  volume {
-    name      = "data"
-    host_path = "/data"
   }
 }
 

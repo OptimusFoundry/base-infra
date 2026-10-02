@@ -67,3 +67,9 @@ variable "ecs_root_volume_gb" {
     error_message = "ecs_root_volume_gb must be at least 30 (the AMI snapshot size)."
   }
 }
+
+variable "ecs_container_insights" {
+  description = "Container Insights on the shared ECS cluster. Off by default (billed per metric); enable temporarily for task sizing measurements."
+  type        = bool
+  default     = false
+}

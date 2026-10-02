@@ -1,6 +1,13 @@
 # Create an ECS Cluster
 resource "aws_ecs_cluster" "ecs_cluster" {
   name = "ecs-cluster" # Name of the ECS cluster
+
+  # Off by default (it bills per metric). Turn on for a day while re-sizing tasks:
+  # polymarket-bot `python -m sports.ops.sizing measure` reads ECS/ContainerInsights.
+  setting {
+    name  = "containerInsights"
+    value = var.ecs_container_insights ? "enabled" : "disabled"
+  }
 }
 
 # IAM Role for ECS Service

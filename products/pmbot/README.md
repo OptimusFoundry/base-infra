@@ -55,6 +55,10 @@ in `local.planes` (`iam.tf`).
 - **Kill switch:** `aws ecs update-service --cluster ecs-cluster --service pmbot-<name> --desired-count 0`.
   Terraform ignores `desired_count`; scale back up with `--desired-count 1`.
 - **Predictor / daily ingest off:** set `predictor_enabled` / `daily_ingest_enabled` to `false` and apply.
-- **Status page on:** after a `pmbot-deploy`, `aws ecs update-service --cluster ecs-cluster --service pmbot-status --desired-count 1`.
+- **Status page:** `pmbot-status` builds `status.json` from the data bucket (`STATUS_SOURCE=s3`), not a
+  local `/data`, because each family has its own volume. Scale it with
+  `aws ecs update-service --cluster ecs-cluster --service pmbot-status --desired-count 1` (or `0`).
+- **Task sizing:** polymarket-bot `sports.ops.sizing measure` reads Container Insights. Set
+  `ecs_container_insights = true` in `platform` for the measurement window, then back to `false`.
 - **Legacy `pmbot-task` role:** kept so a rollback to a pre-plane-split revision still runs. Remove it from
   config (and from the two PassRole lists) when that rollback is no longer wanted.
