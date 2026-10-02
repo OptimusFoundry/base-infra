@@ -71,3 +71,20 @@ variable "predictor_enabled" {
   type        = bool
   default     = true
 }
+
+variable "status_cost_source" {
+  description = "Where the status page's cost panel gets its numbers (EP-035). estimate: pmbot's share of the shared platform host by reserved memory, at list price (no AWS call, no IAM). ce: that host share month to date plus Cost Explorer's actual for the Product=pmbot-tagged lines (the host is a platform resource and never carries the tag); needs the tag activated in the billing console and adds ce:GetCostAndUsage to the pmbot-status role. off: no cost panel."
+  type        = string
+  default     = "estimate"
+
+  validation {
+    condition     = contains(["off", "estimate", "ce"], var.status_cost_source)
+    error_message = "status_cost_source must be \"off\", \"estimate\" or \"ce\"."
+  }
+}
+
+variable "status_alarms_enabled" {
+  description = "Whether the status-plane and collect-plane alarms exist (EP-035): pmbot-status-not-publishing and one pmbot-<tile>-data-stale per collector tile. Default false: pmbot-status may still be parked at desired 0, and a breaching StatusPublished alarm would sit in ALARM. Flip it by a one-line PR and an owner apply after the writer has published for 15 minutes (polymarket-bot docs/runbooks/ops.md). The log metric filters are always on."
+  type        = bool
+  default     = false
+}
