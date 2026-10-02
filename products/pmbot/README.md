@@ -42,8 +42,9 @@ changes: a full plan from an empty state was 47 creates before EP-030, 54 after 
 - Services and the scheduled task place through the `pmbot` capacity provider strategy, not `launch_type`.
 - The instance sits in a public subnet with a public IPv4 because the platform has an internet gateway and no
   NAT. The security group has no inbound rule; the only way onto the host is Session Manager.
-- `/data` is a host directory on the root volume (owned by uid 10001). Every task mounts it. The recorder, the
-  collectors and the maker write there, and `sports.core.s3sync` uploads to `s3://polymarket-bot-data-339713122183`.
+- `/data/<family>` is a host directory per task on the root volume (owned by uid 10001, created by user data, EP-032), and every
+  task mounts its own at `/data` in the container. The recorder, the collectors and the maker write there, and
+  `sports.core.s3sync` uploads to `s3://polymarket-bot-data-339713122183`. S3 is the only channel between services.
 - Services deploy stop-then-start (`deployment_minimum_healthy_percent = 0`, `maximum = 100`), so the old task
   gets SIGTERM and 120 s before the new one starts. Two recorders, or two makers on one `/data`, never run at once.
 - Images are pinned by git SHA, but Terraform no longer deploys them (CH-008). polymarket-bot's `pmbot-deploy`
@@ -103,8 +104,8 @@ bucket through the shared task role (`DataObjects` already allows `s3:PutObject`
   alarms (`pmbot-predictor-failed`, `pmbot-predictor-stale`). Enable it by a PR that changes the default to `true`, after
   one verified manual run. Disable it the same way. Expect one transient `pmbot-predictor-stale` ALARM mail in the first
   hour after enabling (missing data counts as breaching until the first run reports).
-- **Size.** 512 CPU units, 1536 MiB reservation, 3072 MiB limit: below the target 2048/4096/1024 because today's
-  `t4g.large` also runs the five services and the 06:00 ingest. Phase D retunes it with the instance.
+- **Size.** 1024 CPU units, 2048 MiB reservation, 4096 MiB limit (the spec size) since the `t4g.xlarge` (EP-032); every size comes
+  from `local.task_sizes`.
 - **Environment.** `PREDICTOR_LEAGUES=NBA,NHL` plus the common contract. No `LIVE_*`, no `POLYMARKET_*`, no secret.
   `PMBOT_GIT_SHA` (the published `model_version`) is added by `pmbot-deploy`, never here.
 - **First run needs a deploy.** The Terraform-registered revision carries the bootstrap image, which has no predictor
@@ -117,6 +118,32 @@ bucket through the shared task role (`DataObjects` already allows `s3:PutObject`
 - **Deploy role.** `pmbot-github-deploy` may `scheduler:GetSchedule` and `UpdateSchedule` on `pmbot-predictor`
   (statement `RepointThePredictorSchedule` in `github-cd.tf`). `plan_guard.py` refuses CD changes to that role, so the
   statement was applied by the owner before the predictor resources were merged.
+
+## Per-family data dirs, sizes and the research slot (EP-032)
+
+Spec: polymarket-bot `docs/superpowers/specs/2026-10-01-pmbot-service-architecture-design.md` sections 6 and 8; runbook:
+`docs/runbooks/data-plane-compute.md` there (rollout order, soak, OOM drill).
+
+- **Data dirs.** Every task definition mounts host `/data/<family>` at `/data` (`volume.host_path`; the container path and
+  `SPORTS_DATA_ROOT=/data` are unchanged). The dirs are created by the launch template's user data (owner 10001, `compute.tf`
+  `local.data_families`), so **apply this only after the instance was replaced by the t4g.xlarge launch template**: on a host without the
+  dirs Docker creates them as root and the services could not write. Host dirs survive task restarts and redeploys, not an instance
+  replacement (the data is in S3; the maker restores its journal on start).
+- **Sizes.** `local.task_sizes` holds `cpu`, `memory_reservation` (what the scheduler counts) and `memory` (the hard cap; exceeding it
+  kills that container alone) per family, one line each. It must equal polymarket-bot `sports/ops/sizing.py` `SIZES`
+  (`python -m sports.ops.sizing check-tf products/pmbot/services.tf` from `strategy-layer/`, exit 0) and `ci/test_services_sizes.py` pins the
+  same table. Reservations total 7,680 MiB / 3,200 CPU units with `maker-live` (6,656 / 2,688 without) of the host's about
+  15,200 MiB / 4,096.
+- **Research slot.** `local.research_slot` (cpu 512, hard cap 4096, **no reservation**) is the size EP-034's research job will use: with no
+  reservation it is placed only into memory nothing has reserved, and its CPU weight is half the predictor's. A container's hard `memory` is
+  a cgroup limit, so a runaway job is OOM-killed alone (exit 137), never a neighbour. No task definition exists yet.
+- **Environment.** `SPORTS_CACHE_PRUNE` (recorder `recorder/=7`, the three collectors `collectors/=7`, predictor and maker-paper
+  `predictions/=3`; none on daily-ingest) lets a family's drainer delete S3-verified files older than N days;
+  `DAILY_INGEST_REQUIRE_DRAINED=1` on daily-ingest fails its verdict if an upload is still queued.
+- **Status page unchanged.** `aws_ecs_task_definition.status` (CH-009, `status.tf`) keeps its own literal size and its bare `/data`
+  read-only mount; it is not in `local.task_sizes` and has no per-family dir. Its 64 CPU units / 192 MiB reservation are not in the totals above.
+- **Applying this** replaces the 7 task definitions (`7 to add, 0 to change, 7 to destroy`); no service or schedule moves until
+  `pmbot-deploy` runs. Dispatch it only after the owner's steps in the runbook (maker flushed, instance swapped).
 
 ## Per-plane task roles (EP-031)
 
