@@ -37,3 +37,13 @@ output "site_domain" {
 output "status_service_name" {
   value = aws_ecs_service.status.name
 }
+
+output "github_research_run_role_arn" {
+  value       = aws_iam_role.github_research_run.arn
+  description = "PMBOT_RESEARCH_ROLE_ARN repository variable in polymarket-bot"
+}
+
+output "research_log_group_name" {
+  value       = aws_cloudwatch_log_group.research.name
+  description = "Log group of the pmbot-research jobs (stream research/research/<task id>); polymarket-bot run.py LOG_GROUP"
+}
