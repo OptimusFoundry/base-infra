@@ -169,6 +169,13 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/default/pmbot-predictor"
       },
       {
+        # polymarket-bot CH-012: ecs_deploy.py re-points pmbot-scoring like the predictor (an OPTIONAL schedule there).
+        Sid      = "RepointTheScoringSchedule"
+        Effect   = "Allow"
+        Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
+        Resource = "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/default/pmbot-scoring"
+      },
+      {
         # Registering pmbot-status revisions passes its task role.
         Sid      = "PassTheStatusTaskRole"
         Effect   = "Allow"

@@ -21,6 +21,8 @@ locals {
     [aws_cloudwatch_metric_alarm.daily_ingest_missing.arn],
     aws_cloudwatch_metric_alarm.predictor_failed[*].arn,
     aws_cloudwatch_metric_alarm.predictor_stale[*].arn,
+    aws_cloudwatch_metric_alarm.scoring_failed[*].arn,
+    aws_cloudwatch_metric_alarm.scoring_missing[*].arn,
     [aws_cloudwatch_metric_alarm.maker_stale_predictions.arn],
     [aws_cloudwatch_metric_alarm.s3_put_forbidden.arn],
     [aws_cloudwatch_metric_alarm.maker_critical.arn],
@@ -121,6 +123,8 @@ locals {
           ["pmbot", "PredictorFailed", { label = "predictor failed" }],
           ["pmbot", "DailyIngestOk", { label = "daily ingest ok" }],
           ["pmbot", "DailyIngestFailed", { label = "daily ingest failed" }],
+          ["pmbot", "ScoringOk", { label = "scoring ok" }],
+          ["pmbot", "ScoringFailed", { label = "scoring failed" }],
         ]
       }
     },

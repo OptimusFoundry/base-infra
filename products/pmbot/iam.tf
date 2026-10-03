@@ -14,8 +14,10 @@ locals {
       write_prefixes = ["recorder/", "collectors/"]
     }
     model = {
+      # ncaab/: the NCAAB daily-ingest step (polymarket-bot CH-010, from 2026-10-29). scores/: the daily scoring
+      # job (polymarket-bot CH-012).
       exec           = true
-      write_prefixes = ["nba/", "nhl/", "predictions/", "recorder/nba_injury/"]
+      write_prefixes = ["nba/", "nhl/", "ncaab/", "predictions/", "recorder/nba_injury/", "scores/"]
     }
     paper = {
       # nba/injury_parsed/: the inline maker path's injury-PDF parse cache.

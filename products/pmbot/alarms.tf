@@ -116,6 +116,32 @@ resource "aws_cloudwatch_log_metric_filter" "predictor_failed" {
   }
 }
 
+# Scoring (polymarket-bot CH-012). The job logs exactly one of scoring_ok / scoring_failed per run.
+# Quoted-term patterns and no default_value, as for the daily ingest.
+resource "aws_cloudwatch_log_metric_filter" "scoring_ok" {
+  name           = "pmbot-scoring-ok"
+  log_group_name = aws_cloudwatch_log_group.svc["scoring"].name
+  pattern        = "\"scoring_ok\""
+
+  metric_transformation {
+    name      = "ScoringOk"
+    namespace = "pmbot"
+    value     = "1"
+  }
+}
+
+resource "aws_cloudwatch_log_metric_filter" "scoring_failed" {
+  name           = "pmbot-scoring-failed"
+  log_group_name = aws_cloudwatch_log_group.svc["scoring"].name
+  pattern        = "\"scoring_failed\""
+
+  metric_transformation {
+    name      = "ScoringFailed"
+    namespace = "pmbot"
+    value     = "1"
+  }
+}
+
 # The paper maker (MAKER_PREDICTIONS_SOURCE=published) journals a refusal with detail
 # stale_predictions for each due market whose published partition is missing, stale or bad.
 resource "aws_cloudwatch_log_metric_filter" "maker_stale_predictions" {
@@ -166,6 +192,45 @@ resource "aws_cloudwatch_metric_alarm" "predictor_stale" {
   period              = 900
   evaluation_periods  = 4
   datapoints_to_alarm = 4
+  treat_missing_data  = "breaching"
+
+  alarm_actions = [local.alerts_topic_arn]
+  ok_actions    = [local.alerts_topic_arn]
+}
+
+# Scoring failed (a league-day, the summary or the upload). Silence is fine; it returns to OK by itself.
+resource "aws_cloudwatch_metric_alarm" "scoring_failed" {
+  count = var.scoring_enabled ? 1 : 0
+
+  alarm_name          = "pmbot-scoring-failed"
+  alarm_description   = "The pmbot scoring job logged scoring_failed. Runbook: polymarket-bot docs/runbooks/ops.md (scoring)."
+  namespace           = "pmbot"
+  metric_name         = "ScoringFailed"
+  statistic           = "Sum"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  threshold           = 1
+  period              = 300
+  evaluation_periods  = 1
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [local.alerts_topic_arn]
+  ok_actions    = [local.alerts_topic_arn]
+}
+
+# No scoring success for 26 hourly periods, absence breaching: a schedule that never ran or a task that could not
+# start. Expect one transient ALARM mail in the first day after enabling (no run yet), as for daily_ingest_missing.
+resource "aws_cloudwatch_metric_alarm" "scoring_missing" {
+  count = var.scoring_enabled ? 1 : 0
+
+  alarm_name          = "pmbot-scoring-missing"
+  alarm_description   = "No pmbot scoring success in the last 26 hours."
+  namespace           = "pmbot"
+  metric_name         = "ScoringOk"
+  statistic           = "Sum"
+  comparison_operator = "LessThanThreshold"
+  threshold           = 1
+  period              = 3600
+  evaluation_periods  = 26
   treat_missing_data  = "breaching"
 
   alarm_actions = [local.alerts_topic_arn]

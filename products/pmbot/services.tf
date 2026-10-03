@@ -35,6 +35,7 @@ locals {
     "xvenue-poller"  = { cpu = 128, memory_reservation = 256, memory = 512 }
     "rewards-poll"   = { cpu = 128, memory_reservation = 320, memory = 512 }
     "daily-ingest"   = { cpu = 512, memory_reservation = 1536, memory = 4096 }
+    "scoring"        = { cpu = 256, memory_reservation = 512, memory = 1024 }
   }
 
   # The research job's size (research.tf, polymarket-bot EP-034). No memoryReservation, so ECS counts the
@@ -88,9 +89,19 @@ locals {
     extra_env = { PREDICTOR_LEAGUES = "NBA,NHL,NCAAB", SPORTS_CACHE_PRUNE = "predictions/=3" }
   }
 
+  # Scores every paper variant's predictions and paper trades once a day (polymarket-bot CH-012): writes
+  # scores/<league>/<date>.parquet and scores/summary.json, which the status page reads. It reads the
+  # predictions and the paper journals from S3 (the model role reads bucket-wide), so its volume only caches.
+  scoring = {
+    command   = ["python", "-m", "sports.scoring.job", "run"]
+    size      = local.task_sizes["scoring"]
+    extra_env = { SPORTS_CACHE_PRUNE = "predictions/=4" }
+  }
+
   all_tasks = merge(local.services, {
     "daily-ingest" = local.daily_ingest
     "predictor"    = local.predictor
+    "scoring"      = local.scoring
   })
 
   # The plane each task runs as: task role aws_iam_role.plane[<plane>] and upload queue
@@ -102,6 +113,7 @@ locals {
     "rewards-poll"   = "collect"
     "daily-ingest"   = "model"
     predictor        = "model"
+    scoring          = "model"
     "maker-paper"    = "paper"
   }
 
@@ -114,6 +126,7 @@ locals {
     "rewards-poll"   = "collect"
     "daily-ingest"   = "model"
     predictor        = "model"
+    scoring          = "model"
     "maker-paper"    = "trade"
   }
 
