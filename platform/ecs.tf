@@ -10,6 +10,21 @@ resource "aws_ecs_cluster" "ecs_cluster" {
   }
 }
 
+# Fargate capacity for on-demand jobs that must not take the shared host's memory (polymarket-bot CH-011: the
+# pmbot-research-fargate family, started with a FARGATE_SPOT or FARGATE capacity-provider strategy).
+#
+# AUTHORITATIVE for the cluster's capacity providers and its default strategy. Before this resource the cluster had
+# neither (2026-10-02: describe-clusters capacityProviders [] and defaultCapacityProviderStrategy []): the EC2 host
+# joins through ECS_CLUSTER in the launch template below, not through an Auto Scaling group capacity provider, and
+# every service and schedule of every product sets launch_type = "EC2". So the list is exactly the two Fargate
+# providers and there is deliberately NO default_capacity_provider_strategy: a run-task that names neither a launch
+# type nor a strategy keeps landing on the EC2 host, as before. A future EC2 capacity provider is added to THIS list;
+# a second aws_ecs_cluster_capacity_providers resource would fight this one.
+resource "aws_ecs_cluster_capacity_providers" "ecs_cluster" {
+  cluster_name       = aws_ecs_cluster.ecs_cluster.name
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+}
+
 # IAM Role for ECS Service
 # This role allows ECS to assume the role and interact with other AWS services.
 resource "aws_iam_role" "ecs_service_role" {

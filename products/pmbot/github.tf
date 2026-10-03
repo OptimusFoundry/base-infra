@@ -3,8 +3,9 @@
 #   pmbot-github-ecr-push  push images to the pmbot repository. Nothing else.
 #   pmbot-github-deploy    register task definitions, update the pmbot services, re-point the two
 #                          schedules, and upload + invalidate the status site (never status.json).
-#   pmbot-github-research-run  start one pmbot-research task on the shared cluster, follow it and read its
-#                          log (polymarket-bot EP-034, the "Run research job" workflow only).
+#   pmbot-github-research-run  start research tasks (pmbot-research, pmbot-research-fargate) on the shared
+#                          cluster, follow them and read their log (polymarket-bot EP-034, CH-011; the "Run
+#                          research job" workflow only).
 #
 # The OIDC provider is shared and unmanaged, so it is read as a data source, as platform/github-oidc.tf
 # does. Unlike the other products, which deploy through platform's admin role, these are scoped to
@@ -206,9 +207,11 @@ resource "aws_iam_role_policy" "github_deploy" {
 }
 
 # The role polymarket-bot's "Run research job" workflow (.github/workflows/pmbot-research.yml) assumes. It can start
-# the one pmbot-research family on the shared cluster, look at the cluster's tasks and read that family's log group.
-# It cannot register or stop anything, pass any other role, touch S3, SSM or IAM, or run a vault runner (the
-# workflow offers none, and the job refuses one without the owner's PMBOT_VAULT_GO).
+# the two research families on the shared cluster (pmbot-research here; pmbot-research-fargate in
+# github_research_run_fargate below, CH-011), list and look at the cluster's tasks, read the research network
+# parameter and the research log group. It cannot register or stop anything, pass any other role, touch S3 or IAM,
+# read any other SSM parameter, or run a vault runner (the workflow offers none, and the job refuses one without the
+# owner's PMBOT_VAULT_GO).
 resource "aws_iam_role" "github_research_run" {
   name = "pmbot-github-research-run"
 
@@ -284,6 +287,47 @@ resource "aws_iam_role_policy" "github_research_run" {
           "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/ecs/pmbot/research",
           "arn:aws:logs:${var.aws_region}:${local.account_id}:log-group:/ecs/pmbot/research:*",
         ]
+      },
+    ]
+  })
+}
+
+# CH-011: the parallel Fargate family. A separate inline policy, so the owner's plan shows only additions. No new
+# PassRole: the Fargate family runs with the same research task role and execution role (PassTheResearchTaskRoles).
+resource "aws_iam_role_policy" "github_research_run_fargate" {
+  name = "run-research-fargate"
+  role = aws_iam_role.github_research_run.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "RunTheFargateResearchTask"
+        Effect = "Allow"
+        Action = "ecs:RunTask"
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-research-fargate",
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-research-fargate:*",
+        ]
+        Condition = {
+          ArnEquals = { "ecs:cluster" = local.cluster_id }
+        }
+      },
+      {
+        # The launcher's concurrency cap and `list`: list-tasks --cluster ecs-cluster --family <research family>.
+        # Read-only task ARNs; "*" because ListTasks names no task resource.
+        Sid      = "CountTheResearchJobs"
+        Effect   = "Allow"
+        Action   = "ecs:ListTasks"
+        Resource = "*"
+      },
+      {
+        # The awsvpc subnets and security group of a Fargate job (research-fargate.tf), and nothing else. A literal
+        # ARN: the parameter's .arn is unknown until apply and would hide this policy in the plan.
+        Sid      = "ReadTheResearchNetwork"
+        Effect   = "Allow"
+        Action   = "ssm:GetParameter"
+        Resource = "arn:aws:ssm:${var.aws_region}:${local.account_id}:parameter/${local.name}/research-fargate/network"
       },
     ]
   })
