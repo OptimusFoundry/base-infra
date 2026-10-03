@@ -14,7 +14,7 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | ECR | `pmbot` — IMMUTABLE, `prevent_destroy`, keeps the 120 newest images |
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll`, `pmbot-status` (parked at 0) |
 | Schedules | `pmbot-daily-ingest` (06:00 America/New_York), `pmbot-predictor` (every 15 min) |
-| Research jobs | `pmbot-research`: a task definition only, no service and no schedule (polymarket-bot EP-034) |
+| Research jobs | `pmbot-research` (EC2, one at a time) and `pmbot-research-fargate` (Fargate Spot, in parallel): task definitions only, no service and no schedule (polymarket-bot EP-034, CH-011); SG `pmbot-research-fargate`, SSM `/pmbot/research-fargate/network` |
 | Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
 | GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy`, `pmbot-github-research-run` (polymarket-bot `main`, OIDC) |
 | Logs | `/ecs/pmbot/<family>`, 30 days |
@@ -70,6 +70,23 @@ polymarket-bot `docs/runbooks/research-jobs.md`.
   3 h sessions) may `ecs:RunTask` `pmbot-research` on `ecs-cluster`, `ecs:DescribeTasks` on the cluster's tasks,
   `iam:PassRole` the research and execution roles, and `logs:GetLogEvents` on `/ecs/pmbot/research`. Output
   `github_research_run_role_arn` = repository variable `PMBOT_RESEARCH_ROLE_ARN` in polymarket-bot.
+
+## Parallel research jobs on Fargate (CH-011)
+
+`research-fargate.tf`, the inline policy `run-research-fargate` in `github.tf`, and the cluster's capacity providers in
+`platform/ecs.tf`. Runbook: polymarket-bot `docs/runbooks/research-jobs.md`.
+
+- **Task definition** `pmbot-research-fargate`: Fargate, ARM64, 1 vCPU / 8 GiB, 50 GiB ephemeral storage at `/data`
+  (no Docker volume), the same container `research`, environment, task role `pmbot-task-research`, execution role and
+  log group `/ecs/pmbot/research` (stream `research/research/<task id>`) as `pmbot-research`.
+- **Network:** `awsvpc` in the platform's public subnets with a public IP (no NAT), security group
+  `pmbot-research-fargate` (no ingress, TCP 443 out). The launcher reads both from `/pmbot/research-fargate/network`.
+- **Capacity:** `platform/ecs.tf` associates `FARGATE` and `FARGATE_SPOT` with `ecs-cluster`, with no default strategy.
+  The launcher passes `FARGATE_SPOT` (default) or `FARGATE` explicitly.
+- **Workflow role:** may also `ecs:RunTask` `pmbot-research-fargate` on `ecs-cluster`, `ecs:ListTasks` (the launcher's
+  `RESEARCH_MAX_CONCURRENT` cap and `list`) and `ssm:GetParameter` on the network parameter.
+- **Deploys:** pmbot-deploy must list the family as a job (polymarket-bot `ecs_deploy.JOBS`) to register revisions
+  with the running image; until then the bootstrap revision cannot run jobs.
 
 ## Operating
 
