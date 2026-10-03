@@ -72,6 +72,12 @@ variable "predictor_enabled" {
   default     = true
 }
 
+variable "scoring_enabled" {
+  description = "Whether the 09:00 America/New_York scoring schedule fires (polymarket-bot CH-012), and whether its two alarms exist"
+  type        = bool
+  default     = true
+}
+
 variable "status_cost_source" {
   description = "Where the status page's cost panel gets its numbers (EP-035). estimate: pmbot's share of the shared platform host by reserved memory, at list price (no AWS call, no IAM). ce: that host share month to date plus Cost Explorer's actual for the Product=pmbot-tagged lines (the host is a platform resource and never carries the tag); needs the tag activated in the billing console and adds ce:GetCostAndUsage to the pmbot-status role. off: no cost panel."
   type        = string

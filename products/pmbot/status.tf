@@ -211,6 +211,13 @@ resource "aws_iam_role_policy" "status" {
           Resource = "arn:aws:s3:::${var.data_bucket}/sports/live/maker/*"
         },
         {
+          # polymarket-bot CH-012: the comparison of paper variants reads scores/summary.json.
+          Sid      = "ReadTheScores"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
+          Resource = "arn:aws:s3:::${var.data_bucket}/sports/scores/*"
+        },
+        {
           Sid      = "PublishStatusJsonOnly"
           Effect   = "Allow"
           Action   = ["s3:PutObject"]

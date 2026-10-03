@@ -13,12 +13,12 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | State | `s3://pmbot-terraform-state/state/terraform.tfstate` (S3 native locking) |
 | ECR | `pmbot` — IMMUTABLE, `prevent_destroy`, keeps the 120 newest images |
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll`, `pmbot-status` (parked at 0) |
-| Schedules | `pmbot-daily-ingest` (06:00 America/New_York), `pmbot-predictor` (every 15 min) |
+| Schedules | `pmbot-daily-ingest` (06:00 America/New_York), `pmbot-predictor` (every 15 min), `pmbot-scoring` (09:00 America/New_York, polymarket-bot CH-012) |
 | Research jobs | `pmbot-research` (EC2, one at a time) and `pmbot-research-fargate` (Fargate Spot, in parallel): task definitions only, no service and no schedule (polymarket-bot EP-034, CH-011); SG `pmbot-research-fargate`, SSM `/pmbot/research-fargate/network` |
 | Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
 | GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy`, `pmbot-github-research-run` (polymarket-bot `main`, OIDC) |
 | Logs | `/ecs/pmbot/<family>`, 30 days |
-| Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden, and the EP-035 per-plane alarms (section "Alarms by plane") — all to `platform-alerts` |
+| Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, scoring failed/missing, maker stale predictions, S3 put forbidden, and the EP-035 per-plane alarms (section "Alarms by plane") — all to `platform-alerts` |
 | Status site | `pmbot.protoapp.xyz`: bucket `pmbot-site-<account>` + CloudFront on the platform wildcard cert + Cloudflare record |
 | Manifest | `/pmbot/manifest` |
 | Dashboard and budget (EP-035) | CloudWatch dashboard `pmbot` (`dashboard_enabled`, default on) and an optional AWS Budget `pmbot-monthly` on the `Product=pmbot` tag (`budget_monthly_usd`, default 0 = none) |
@@ -92,7 +92,8 @@ polymarket-bot `docs/runbooks/research-jobs.md`.
 
 - **Kill switch:** `aws ecs update-service --cluster ecs-cluster --service pmbot-<name> --desired-count 0`.
   Terraform ignores `desired_count`; scale back up with `--desired-count 1`.
-- **Predictor / daily ingest off:** set `predictor_enabled` / `daily_ingest_enabled` to `false` and apply.
+- **Predictor / daily ingest / scoring off:** set `predictor_enabled` / `daily_ingest_enabled` / `scoring_enabled` to
+  `false` and apply.
 - **Status page:** `pmbot-status` builds `status.json` from the data bucket (`STATUS_SOURCE=s3`), not a
   local `/data`, because each family has its own volume. Scale it with
   `aws ecs update-service --cluster ecs-cluster --service pmbot-status --desired-count 1` (or `0`).
@@ -136,6 +137,7 @@ quoted term matches the JSON renderer too). Runbook: polymarket-bot `docs/runboo
 | collect | `pmbot-recorder-data-stale`, `pmbot-xvenue-poller-data-stale`, `pmbot-rewards-poll-data-stale` | the status writer logged `status_tile_stale tile=<name>` in each of 3 x 5 min (the tile is past its own stale limit plus 15 min) | notBreaching | `status_alarms_enabled` |
 | model | `pmbot-daily-ingest-failed`, `pmbot-daily-ingest-missing` | `daily_ingest_failed` logged; no `daily_ingest_ok` for 26 h | notBreaching; breaching | always |
 | model | `pmbot-predictor-failed`, `pmbot-predictor-stale` | `predictor_failed` logged; no `predictor_ok` for 4 x 15 min | notBreaching; breaching | `predictor_enabled` |
+| model | `pmbot-scoring-failed`, `pmbot-scoring-missing` | `scoring_failed` logged; no `scoring_ok` for 26 h (polymarket-bot CH-012) | notBreaching; breaching | `scoring_enabled` |
 | paper | `pmbot-maker-paper-not-running` | no running task for 5 x 60 s | breaching | always |
 | paper | `pmbot-maker-stale-predictions` | a market refused as `stale_predictions` | notBreaching | always |
 | paper | `pmbot-maker-paper-critical` | any event of `local.maker_critical_events` in 5 min (`tick_failed`, `journal_corrupt_engine_halted`, `engine_halted`, `post_unknown`, ...) | notBreaching | always |

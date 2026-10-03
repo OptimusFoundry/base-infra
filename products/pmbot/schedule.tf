@@ -1,6 +1,7 @@
-# EventBridge Scheduler runs the two scheduled families on the shared cluster: daily-ingest at
-# 06:00 New York time and the predictor every 15 minutes. One attempt each: the CLIs retry
-# internally and exit 1 on failure, which the alarms in alarms.tf turn into mail.
+# EventBridge Scheduler runs the three scheduled families on the shared cluster: daily-ingest at
+# 06:00 New York time, the predictor every 15 minutes and the scoring job at 09:00 New York time
+# (polymarket-bot CH-012). One attempt each: the CLIs retry internally and exit 1 on failure, which
+# the alarms in alarms.tf turn into mail.
 
 resource "aws_iam_role" "scheduler" {
   name = "pmbot-scheduler"
@@ -52,10 +53,22 @@ resource "aws_iam_role_policy" "scheduler" {
         }
       },
       {
+        Sid    = "RunScoringOnly"
+        Effect = "Allow"
+        Action = "ecs:RunTask"
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-scoring",
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-scoring:*",
+        ]
+        Condition = {
+          ArnEquals = { "ecs:cluster" = local.cluster_id }
+        }
+      },
+      {
         Sid    = "PassOnlyThePmbotTaskRoles"
         Effect = "Allow"
         Action = "iam:PassRole"
-        # Both scheduled families run as the model plane's role.
+        # Every scheduled family runs as the model plane's role.
         Resource = [
           aws_iam_role.task_execution.arn,
           aws_iam_role.plane["model"].arn,
@@ -119,6 +132,41 @@ resource "aws_scheduler_schedule" "predictor" {
 
     ecs_parameters {
       task_definition_arn    = aws_ecs_task_definition.svc["predictor"].arn_without_revision
+      task_count             = 1
+      launch_type            = "EC2"
+      enable_execute_command = true
+    }
+
+    retry_policy {
+      maximum_retry_attempts = 0
+    }
+  }
+
+  # Same reason as the daily-ingest schedule.
+  lifecycle {
+    ignore_changes = [target[0].ecs_parameters[0].task_definition_arn]
+  }
+}
+
+# polymarket-bot CH-012: the daily scoring job. 09:00 New York time: the previous evening's games are final and
+# most Polymarket markets have resolved; a game still unresolved is left pending and re-scored on the next two
+# days' runs (the job scores the three dates before today).
+resource "aws_scheduler_schedule" "scoring" {
+  name                         = "pmbot-scoring"
+  schedule_expression          = "cron(0 9 * * ? *)"
+  schedule_expression_timezone = "America/New_York"
+  state                        = var.scoring_enabled ? "ENABLED" : "DISABLED"
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = local.cluster_id
+    role_arn = aws_iam_role.scheduler.arn
+
+    ecs_parameters {
+      task_definition_arn    = aws_ecs_task_definition.svc["scoring"].arn_without_revision
       task_count             = 1
       launch_type            = "EC2"
       enable_execute_command = true
