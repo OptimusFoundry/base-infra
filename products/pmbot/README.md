@@ -15,7 +15,7 @@ every other product. Applied by hand from a saved plan, like every other stack.
 | Services | `pmbot-recorder`, `pmbot-maker-paper`, `pmbot-ingame-capture`, `pmbot-xvenue-poller`, `pmbot-rewards-poll`, `pmbot-status` (parked at 0) |
 | Schedules | `pmbot-daily-ingest` (06:00 America/New_York), `pmbot-predictor` (every 15 min) |
 | Research jobs | `pmbot-research`: a task definition only, no service and no schedule (polymarket-bot EP-034) |
-| Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-task` (legacy), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
+| Task roles | `pmbot-task-{collect,model,paper,research}` (one per plane), `pmbot-status`, `pmbot-task-execution`, `pmbot-scheduler` |
 | GitHub roles | `pmbot-github-ecr-push`, `pmbot-github-deploy`, `pmbot-github-research-run` (polymarket-bot `main`, OIDC) |
 | Logs | `/ecs/pmbot/<family>`, 30 days |
 | Alarms | `pmbot-<service>-not-running` ×5, daily-ingest failed/missing, predictor failed/stale, maker stale predictions, S3 put forbidden, and the EP-035 per-plane alarms (section "Alarms by plane") — all to `platform-alerts` |
@@ -81,8 +81,8 @@ polymarket-bot `docs/runbooks/research-jobs.md`.
   `aws ecs update-service --cluster ecs-cluster --service pmbot-status --desired-count 1` (or `0`).
 - **Task sizing:** polymarket-bot `sports.ops.sizing measure` reads Container Insights. Set
   `ecs_container_insights = true` in `platform` for the measurement window, then back to `false`.
-- **Legacy `pmbot-task` role:** kept so a rollback to a pre-plane-split revision still runs. Remove it from
-  config (and from the two PassRole lists) when that rollback is no longer wanted.
+- **Legacy `pmbot-task` role:** removed 2026-10-03 (polymarket-bot CHORE-017). Task-definition revisions from before
+  the plane split still name it and no longer start; roll back no further than a per-plane revision.
 
 ## Status writer (EP-035)
 

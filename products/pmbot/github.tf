@@ -133,12 +133,12 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${local.cluster_name}/pmbot-*"
       },
       {
-        # The legacy role, the execution role and the four per-plane task roles.
+        # The execution role and the four per-plane task roles (the legacy pmbot-task role is gone, CHORE-017).
         Sid    = "PassTheTaskRoles"
         Effect = "Allow"
         Action = ["iam:PassRole"]
         Resource = concat(
-          [aws_iam_role.task.arn, aws_iam_role.task_execution.arn],
+          [aws_iam_role.task_execution.arn],
           [for plane in ["collect", "model", "paper", "research"] : "arn:aws:iam::${local.account_id}:role/pmbot-task-${plane}"],
         )
         Condition = {

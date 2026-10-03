@@ -57,7 +57,6 @@ resource "aws_iam_role_policy" "scheduler" {
         Action = "iam:PassRole"
         # Both scheduled families run as the model plane's role.
         Resource = [
-          aws_iam_role.task.arn,
           aws_iam_role.task_execution.arn,
           aws_iam_role.plane["model"].arn,
         ]
