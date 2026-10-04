@@ -20,6 +20,7 @@ locals {
     LIVE_TRADING             = "0"
     LIVE_LEAGUES             = "NBA,NHL,NCAAB"
     MAKER_PREDICTIONS_SOURCE = "published" # the maker reads the predictor's published predictions
+    MAKER_PREDICTIONS_SCHEMA = "2"         # EP-042: schema 2.0 through the Polymarket venue join
   }
 
   # The size of every family, in CPU units and MiB. memory_reservation is what the ECS scheduler
