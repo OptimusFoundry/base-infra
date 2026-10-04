@@ -3,7 +3,8 @@
 #   pmbot-site-<account>  Private S3 bucket that only this CloudFront distribution may read (OAC). The
 #                         pmbot-status task writes status.json every 60 s; polymarket-bot's pmbot-site.yml
 #                         (as pmbot-github-deploy) uploads index.html, scoreboard.json and assets/.
-#   CloudFront            On the platform's *.protoapp.xyz wildcard certificate; status.json is never cached.
+#   CloudFront            On the platform's *.protoapp.xyz wildcard certificate; status.json and the other
+#                         live files (local.site_live_files) are never cached.
 #   pmbot-status          ECS service writing status.json from the data bucket (STATUS_SOURCE=s3: each family has
 #                         its own volume, so no local /data holds everything). Task role pmbot-status may list
 #                         sports/, read the maker's journal and flags, and PutObject status.json (its only write),
@@ -22,6 +23,10 @@ locals {
   cache_policy_optimized  = "658327ea-f89d-4fab-a63d-7e88639e58f6" # Managed-CachingOptimized
   cache_policy_disabled   = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # Managed-CachingDisabled
   security_headers_policy = "67f7725c-6f97-4210-82d7-5512b31e9d03" # Managed-SecurityHeadersPolicy
+
+  # Never cached at the edge. pmbot-status writes the first five (EP-043); pmbot-site.yml uploads roadmap.json.
+  site_status_files = ["status.json", "now.json", "pnl.json", "models.json", "research.json"]
+  site_live_files   = concat(local.site_status_files, ["roadmap.json"])
 
   # The writer's whole environment (plus PMBOT_GIT_SHA, injected by pmbot-deploy). Not local.common_env:
   # it never syncs (SPORTS_S3=off) and reads the data bucket directly (STATUS_SOURCE=s3). EP-035: STATUS_AWS=on
@@ -130,16 +135,20 @@ resource "aws_cloudfront_distribution" "site" {
     response_headers_policy_id = local.security_headers_policy
   }
 
-  # Rewritten every 60 s: never cached at the edge, so the page's age check sees the real age.
-  ordered_cache_behavior {
-    path_pattern               = "/status.json"
-    allowed_methods            = ["GET", "HEAD"]
-    cached_methods             = ["GET", "HEAD"]
-    target_origin_id           = local.site_origin
-    viewer_protocol_policy     = "redirect-to-https"
-    compress                   = true
-    cache_policy_id            = local.cache_policy_disabled
-    response_headers_policy_id = local.security_headers_policy
+  # Rewritten often (status.json every 60 s): never cached at the edge, so the page's age check sees the real
+  # age. Named files, not /*.json: scoreboard.json stays cached.
+  dynamic "ordered_cache_behavior" {
+    for_each = local.site_live_files
+    content {
+      path_pattern               = "/${ordered_cache_behavior.value}"
+      allowed_methods            = ["GET", "HEAD"]
+      cached_methods             = ["GET", "HEAD"]
+      target_origin_id           = local.site_origin
+      viewer_protocol_policy     = "redirect-to-https"
+      compress                   = true
+      cache_policy_id            = local.cache_policy_disabled
+      response_headers_policy_id = local.security_headers_policy
+    }
   }
 
   restrictions {
@@ -218,10 +227,21 @@ resource "aws_iam_role_policy" "status" {
           Resource = "arn:aws:s3:::${var.data_bucket}/sports/scores/*"
         },
         {
-          Sid      = "PublishStatusJsonOnly"
+          # polymarket-bot EP-043: sources for the system UI's files. Read only.
+          Sid    = "ReadSiteFileSources"
+          Effect = "Allow"
+          Action = ["s3:GetObject"]
+          Resource = [
+            "arn:aws:s3:::${var.data_bucket}/sports/predictions/v2/*",
+            "arn:aws:s3:::${var.data_bucket}/sports/ledger/records/*",
+          ]
+        },
+        {
+          # Exactly these keys, no wildcard: index.html, scoreboard.json, roadmap.json and assets/ are pmbot-site.yml's.
+          Sid      = "PublishStatusFiles"
           Effect   = "Allow"
           Action   = ["s3:PutObject"]
-          Resource = "${aws_s3_bucket.site.arn}/status.json"
+          Resource = [for f in local.site_status_files : "${aws_s3_bucket.site.arn}/${f}"]
         },
         {
           Sid    = "EcsExecChannels"

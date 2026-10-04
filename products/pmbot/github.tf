@@ -193,13 +193,15 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = aws_s3_bucket.site.arn
       },
       {
-        # The page, its scoreboard and its hashed assets. Never status.json: the pmbot-status task owns it.
+        # The page, its scoreboard, its roadmap (EP-043) and its hashed assets. Never the status files: the
+        # pmbot-status task owns them.
         Sid    = "UploadTheSite"
         Effect = "Allow"
         Action = ["s3:PutObject", "s3:DeleteObject"]
         Resource = [
           "${aws_s3_bucket.site.arn}/index.html",
           "${aws_s3_bucket.site.arn}/scoreboard.json",
+          "${aws_s3_bucket.site.arn}/roadmap.json",
           "${aws_s3_bucket.site.arn}/assets/*",
         ]
       },
