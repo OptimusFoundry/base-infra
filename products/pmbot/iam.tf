@@ -29,6 +29,8 @@ locals {
       write_prefixes = [
         "experiments/", "panel/", "gamma/", "prices/", "pretrades/", "tape/", "hist/", "nba/", "nhl/",
         "nfl/", "ncaab/", "collectors/xvenue/",
+        # scores/model/: the daily model scorecard research job (polymarket-bot EP-042); scores/ stays the model plane's.
+        "scores/model/",
       ]
     }
   }
