@@ -87,7 +87,7 @@ locals {
   predictor = {
     command   = ["python", "-m", "sports.models.predictor.run", "publish"]
     size      = local.task_sizes["predictor"]
-    extra_env = { PREDICTOR_LEAGUES = "NBA,NHL,NCAAB", SPORTS_CACHE_PRUNE = "predictions/=3" }
+    extra_env = { PREDICTOR_LEAGUES = "NBA,NHL,NCAAB,NFL", SPORTS_CACHE_PRUNE = "predictions/=3" }
   }
 
   # Scores every paper variant's predictions and paper trades once a day (polymarket-bot CH-012): writes
