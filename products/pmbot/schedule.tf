@@ -65,13 +65,27 @@ resource "aws_iam_role_policy" "scheduler" {
         }
       },
       {
+        # polymarket-bot EP-049: the hourly crypto scoring job (crypto.tf).
+        Sid    = "RunCryptoScoringOnly"
+        Effect = "Allow"
+        Action = "ecs:RunTask"
+        Resource = [
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-crypto-scoring",
+          "arn:aws:ecs:${var.aws_region}:${local.account_id}:task-definition/pmbot-crypto-scoring:*",
+        ]
+        Condition = {
+          ArnEquals = { "ecs:cluster" = local.cluster_id }
+        }
+      },
+      {
         Sid    = "PassOnlyThePmbotTaskRoles"
         Effect = "Allow"
         Action = "iam:PassRole"
-        # Every scheduled family runs as the model plane's role.
+        # The sports families run as the model plane's role, crypto-scoring as pmbot-crypto-paper.
         Resource = [
           aws_iam_role.task_execution.arn,
           aws_iam_role.plane["model"].arn,
+          aws_iam_role.crypto.arn,
         ]
         Condition = {
           StringLike = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" }

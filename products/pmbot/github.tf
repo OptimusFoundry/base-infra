@@ -141,12 +141,13 @@ resource "aws_iam_role_policy" "github_deploy" {
         Resource = "arn:aws:ecs:${var.aws_region}:${local.account_id}:service/${local.cluster_name}/pmbot-*"
       },
       {
-        # The execution role and the four per-plane task roles (the legacy pmbot-task role is gone, CHORE-017).
+        # The execution role, the four per-plane task roles (the legacy pmbot-task role is gone, CHORE-017) and the
+        # crypto families' role (EP-049).
         Sid    = "PassTheTaskRoles"
         Effect = "Allow"
         Action = ["iam:PassRole"]
         Resource = concat(
-          [aws_iam_role.task_execution.arn],
+          [aws_iam_role.task_execution.arn, aws_iam_role.crypto.arn],
           [for plane in ["collect", "model", "paper", "research"] : "arn:aws:iam::${local.account_id}:role/pmbot-task-${plane}"],
         )
         Condition = {
@@ -181,6 +182,13 @@ resource "aws_iam_role_policy" "github_deploy" {
         Effect   = "Allow"
         Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
         Resource = "arn:aws:scheduler:${var.aws_region}:${local.account_id}:schedule/default/pmbot-scoring"
+      },
+      {
+        # polymarket-bot EP-049: the hourly crypto scoring job, OPTIONAL in ecs_deploy.py like pmbot-scoring.
+        Sid      = "RepointTheCryptoScoringSchedule"
+        Effect   = "Allow"
+        Action   = ["scheduler:GetSchedule", "scheduler:UpdateSchedule"]
+        Resource = aws_scheduler_schedule.crypto_scoring.arn
       },
       {
         # Registering pmbot-status revisions passes its task role.

@@ -26,6 +26,17 @@ variable "image_tag" {
   }
 }
 
+variable "crypto_image_tag" {
+  description = "Bootstrap image for the crypto families only (polymarket-bot EP-049): a git SHA whose <sha>-crypto tag exists in ECR. null falls back to image_tag. Changing it registers new crypto-paper and crypto-scoring revisions and moves nothing running."
+  type        = string
+  default     = "f5c2e489fccedcfee0691f9ec9c6a6a362ca5b98"
+
+  validation {
+    condition     = var.crypto_image_tag == null || (can(regex("^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", var.crypto_image_tag)) && var.crypto_image_tag != "latest")
+    error_message = "crypto_image_tag must be null or a valid Docker tag other than \"latest\"."
+  }
+}
+
 variable "sports_s3_mode" {
   description = "SPORTS_S3 for every task. rw: the cloud is the canonical writer. ro only for a rollback to the Mac writers."
   type        = string

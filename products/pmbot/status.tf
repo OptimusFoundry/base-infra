@@ -227,6 +227,25 @@ resource "aws_iam_role_policy" "status" {
           Resource = "arn:aws:s3:::${var.data_bucket}/sports/scores/*"
         },
         {
+          # polymarket-bot EP-049: the crypto taker's paper scores and state for the page. Read only.
+          Sid    = "ReadCryptoPaper"
+          Effect = "Allow"
+          Action = ["s3:GetObject"]
+          Resource = [
+            "arn:aws:s3:::${var.data_bucket}/crypto/paper/scores/*",
+            "arn:aws:s3:::${var.data_bucket}/crypto/paper/state/*",
+          ]
+        },
+        {
+          Sid      = "ListCryptoPaper"
+          Effect   = "Allow"
+          Action   = ["s3:ListBucket"]
+          Resource = "arn:aws:s3:::${var.data_bucket}"
+          Condition = {
+            StringLike = { "s3:prefix" = ["crypto/paper/*"] }
+          }
+        },
+        {
           # polymarket-bot EP-043: sources for the system UI's files. Read only.
           Sid    = "ReadSiteFileSources"
           Effect = "Allow"

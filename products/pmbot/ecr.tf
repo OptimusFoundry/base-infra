@@ -13,7 +13,7 @@ resource "aws_ecr_repository" "pmbot" {
   }
 }
 
-# Every push is four images (collect, model, trade, research), so 120 is about 30 pushes of
+# Every push is five images (collect, model, trade, research, crypto), so 150 is about 30 pushes of
 # rollback window. A rollback further back needs a rebuild.
 resource "aws_ecr_lifecycle_policy" "pmbot" {
   repository = aws_ecr_repository.pmbot.name
@@ -21,11 +21,11 @@ resource "aws_ecr_lifecycle_policy" "pmbot" {
   policy = jsonencode({
     rules = [{
       rulePriority = 1
-      description  = "Expire all but the 120 most recent images"
+      description  = "Expire all but the 150 most recent images"
       selection = {
         tagStatus   = "any"
         countType   = "imageCountMoreThan"
-        countNumber = 120
+        countNumber = 150
       }
       action = { type = "expire" }
     }]

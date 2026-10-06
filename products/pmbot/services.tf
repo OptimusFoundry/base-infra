@@ -23,6 +23,13 @@ locals {
     MAKER_PREDICTIONS_SCHEMA = "2"         # EP-042: schema 2.0 through the Polymarket venue join
   }
 
+  # polymarket-bot EP-049 (D-029): the crypto taker, paper only and forced here like the maker. Everything it
+  # writes lives under crypto/ in the data bucket, never sports/.
+  crypto_env = {
+    LIVE_TRADING     = "0"
+    SPORTS_S3_PREFIX = "crypto/"
+  }
+
   # The size of every family, in CPU units and MiB. memory_reservation is what the ECS scheduler
   # counts; memory is the container's hard cap (exceeding it kills that container alone). maker-live
   # has no task definition yet; it is listed so host headroom counts it. Must equal polymarket-bot
@@ -37,13 +44,15 @@ locals {
     "rewards-poll"   = { cpu = 128, memory_reservation = 320, memory = 512 }
     "daily-ingest"   = { cpu = 512, memory_reservation = 1536, memory = 4096 }
     "scoring"        = { cpu = 256, memory_reservation = 512, memory = 1024 }
+    "crypto-paper"   = { cpu = 512, memory_reservation = 1536, memory = 3072 }
+    "crypto-scoring" = { cpu = 256, memory_reservation = 512, memory = 1024 }
   }
 
   # The research job's size (research.tf, polymarket-bot EP-034). No memoryReservation, so ECS counts the
   # hard cap at placement and a job only fits into memory nothing on the shared host has reserved.
   research_slot = { cpu = 512, memory = 4096 }
 
-  # The five long-running services; commands mirror polymarket-bot sports/ops/services.py SERVICES.
+  # The six long-running services; commands mirror polymarket-bot sports/ops/services.py SERVICES.
   # SPORTS_CACHE_PRUNE lets a family delete S3-verified local files older than N days under one
   # write-once prefix of its own data volume.
   services = {
@@ -72,6 +81,15 @@ locals {
       size      = local.task_sizes["rewards-poll"]
       extra_env = { SPORTS_CACHE_PRUNE = "collectors/=7" }
     }
+    crypto-paper = {
+      command = ["python", "-m", "sports.crypto_paper.run", "loop"]
+      size    = local.task_sizes["crypto-paper"]
+      extra_env = merge(local.crypto_env, {
+        CRYPTO_SPOT_FEED    = "binanceus"
+        CRYPTO_DERIV_SOURCE = "okx"
+        CRYPTO_STAKE_USD    = "10"
+      })
+    }
   }
 
   # Scheduled tasks (sports/ops/services.py SCHEDULED), run by EventBridge Scheduler (schedule.tf).
@@ -99,10 +117,18 @@ locals {
     extra_env = { SPORTS_CACHE_PRUNE = "predictions/=4" }
   }
 
+  # Scores the crypto taker's paper trades hourly (polymarket-bot EP-049): crypto/paper/scores/.
+  crypto_scoring = {
+    command   = ["python", "-m", "sports.crypto_paper.score", "run"]
+    size      = local.task_sizes["crypto-scoring"]
+    extra_env = local.crypto_env
+  }
+
   all_tasks = merge(local.services, {
-    "daily-ingest" = local.daily_ingest
-    "predictor"    = local.predictor
-    "scoring"      = local.scoring
+    "daily-ingest"   = local.daily_ingest
+    "predictor"      = local.predictor
+    "scoring"        = local.scoring
+    "crypto-scoring" = local.crypto_scoring
   })
 
   # The plane each task runs as: task role aws_iam_role.plane[<plane>] and upload queue
@@ -116,6 +142,15 @@ locals {
     predictor        = "model"
     scoring          = "model"
     "maker-paper"    = "paper"
+    "crypto-paper"   = "paper"
+    "crypto-scoring" = "paper"
+  }
+
+  # Families whose task role is not their plane's. The crypto families queue on the paper plane but run as
+  # pmbot-crypto-paper (crypto.tf), which can touch nothing under sports/.
+  family_task_role = {
+    "crypto-paper"   = aws_iam_role.crypto.arn
+    "crypto-scoring" = aws_iam_role.crypto.arn
   }
 
   # The image target each task runs (<sha>-<target>). Must equal polymarket-bot
@@ -129,6 +164,16 @@ locals {
     predictor        = "model"
     scoring          = "model"
     "maker-paper"    = "trade"
+    "crypto-paper"   = "crypto"
+    "crypto-scoring" = "crypto"
+  }
+
+  # The bootstrap sha each family's Terraform-registered revision runs. The crypto families got their own (EP-049):
+  # var.image_tag's sha has no -crypto image.
+  family_image_tag = {
+    for name in keys(local.family_target) : name => (
+      local.family_target[name] == "crypto" ? coalesce(var.crypto_image_tag, var.image_tag) : var.image_tag
+    )
   }
 
   # One container per task definition, named after the family. /data is the family's own Docker
@@ -136,7 +181,7 @@ locals {
   container_definitions = {
     for name, task in local.all_tasks : name => [{
       name              = name
-      image             = "${local.image_repo}:${var.image_tag}-${local.family_target[name]}"
+      image             = "${local.image_repo}:${local.family_image_tag[name]}-${local.family_target[name]}"
       command           = task.command
       essential         = true
       cpu               = task.size.cpu
@@ -184,7 +229,7 @@ resource "aws_ecs_task_definition" "svc" {
   network_mode             = "bridge"
   requires_compatibilities = ["EC2"]
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.plane[local.family_plane[each.key]].arn
+  task_role_arn            = lookup(local.family_task_role, each.key, aws_iam_role.plane[local.family_plane[each.key]].arn)
   container_definitions    = jsonencode(local.container_definitions[each.key])
 
   # Hosts are Graviton (t4g); images are built linux/arm64 in CI.
