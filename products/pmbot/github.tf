@@ -97,6 +97,13 @@ resource "aws_iam_role_policy" "github_deploy" {
     Version = "2012-10-17"
     Statement = [
       {
+        # pmbot-deploy checks every image tag exists before it registers anything (polymarket-bot CH-015 / BUG-021).
+        Sid      = "PreflightThePmbotImages"
+        Effect   = "Allow"
+        Action   = ["ecr:DescribeImages"]
+        Resource = aws_ecr_repository.pmbot.arn
+      },
+      {
         # DescribeTaskDefinition has no resource-level permissions.
         Sid      = "DescribeEcs"
         Effect   = "Allow"
