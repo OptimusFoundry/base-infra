@@ -35,17 +35,18 @@ locals {
   # has no task definition yet; it is listed so host headroom counts it. Must equal polymarket-bot
   # sports/ops/sizing.py SIZES, whose `check-tf` command parses this block: keep one family per line.
   task_sizes = {
-    "maker-live"     = { cpu = 512, memory_reservation = 1024, memory = 2048 }
-    "maker-paper"    = { cpu = 512, memory_reservation = 1024, memory = 2048 }
-    "predictor"      = { cpu = 1024, memory_reservation = 2048, memory = 4096 }
-    "recorder"       = { cpu = 256, memory_reservation = 512, memory = 1024 }
-    "ingame-capture" = { cpu = 128, memory_reservation = 960, memory = 1472 }
-    "xvenue-poller"  = { cpu = 128, memory_reservation = 256, memory = 512 }
-    "rewards-poll"   = { cpu = 128, memory_reservation = 320, memory = 512 }
-    "daily-ingest"   = { cpu = 512, memory_reservation = 1536, memory = 4096 }
-    "scoring"        = { cpu = 256, memory_reservation = 512, memory = 1024 }
-    "crypto-paper"   = { cpu = 512, memory_reservation = 1536, memory = 3072 }
-    "crypto-scoring" = { cpu = 256, memory_reservation = 512, memory = 1024 }
+    "maker-live"      = { cpu = 512, memory_reservation = 1024, memory = 2048 }
+    "maker-paper"     = { cpu = 512, memory_reservation = 1024, memory = 2048 }
+    "predictor"       = { cpu = 1024, memory_reservation = 2048, memory = 4096 }
+    "recorder"        = { cpu = 256, memory_reservation = 512, memory = 1024 }
+    "ingame-capture"  = { cpu = 128, memory_reservation = 960, memory = 1472 }
+    "xvenue-poller"   = { cpu = 128, memory_reservation = 256, memory = 512 }
+    "rewards-poll"    = { cpu = 128, memory_reservation = 320, memory = 512 }
+    "daily-ingest"    = { cpu = 512, memory_reservation = 1536, memory = 4096 }
+    "scoring"         = { cpu = 256, memory_reservation = 512, memory = 1024 }
+    "crypto-paper"    = { cpu = 512, memory_reservation = 1536, memory = 3072 }
+    "crypto-scoring"  = { cpu = 256, memory_reservation = 512, memory = 1024 }
+    "crypto-recorder" = { cpu = 256, memory_reservation = 512, memory = 2048 }
   }
 
   # The research job's size (research.tf, polymarket-bot EP-034). No memoryReservation, so ECS counts the
@@ -88,6 +89,15 @@ locals {
         CRYPTO_SPOT_FEED    = "binanceus"
         CRYPTO_DERIV_SOURCE = "okx"
         CRYPTO_STAKE_USD    = "10"
+      })
+    }
+    # polymarket-bot EP-050: records public crypto market data to crypto/recorder/. It caps its volume at 20 GB
+    # (CRYPTO_RECORDER_MAX_LOCAL_GB) and pauses below 5 GB free on the host (CRYPTO_RECORDER_MIN_FREE_GB).
+    crypto-recorder = {
+      command = ["python", "-m", "sports.crypto_recorder.run", "loop"]
+      size    = local.task_sizes["crypto-recorder"]
+      extra_env = merge(local.crypto_env, {
+        CRYPTO_RECORDER_CONTACT = "https://pmbot.protoapp.xyz"
       })
     }
   }
@@ -134,46 +144,51 @@ locals {
   # The plane each task runs as: task role aws_iam_role.plane[<plane>] and upload queue
   # SPORTS_S3_QUEUE=<plane>. They change together: a plane role cannot upload another plane's files.
   family_plane = {
-    recorder         = "collect"
-    "ingame-capture" = "collect"
-    "xvenue-poller"  = "collect"
-    "rewards-poll"   = "collect"
-    "daily-ingest"   = "model"
-    predictor        = "model"
-    scoring          = "model"
-    "maker-paper"    = "paper"
-    "crypto-paper"   = "paper"
-    "crypto-scoring" = "paper"
+    recorder          = "collect"
+    "ingame-capture"  = "collect"
+    "xvenue-poller"   = "collect"
+    "rewards-poll"    = "collect"
+    "daily-ingest"    = "model"
+    predictor         = "model"
+    scoring           = "model"
+    "maker-paper"     = "paper"
+    "crypto-paper"    = "paper"
+    "crypto-scoring"  = "paper"
+    "crypto-recorder" = "paper"
   }
 
   # Families whose task role is not their plane's. The crypto families queue on the paper plane but run as
-  # pmbot-crypto-paper (crypto.tf), which can touch nothing under sports/.
+  # pmbot-crypto-paper or pmbot-crypto-recorder (crypto.tf), which can touch nothing under sports/.
   family_task_role = {
-    "crypto-paper"   = aws_iam_role.crypto.arn
-    "crypto-scoring" = aws_iam_role.crypto.arn
+    "crypto-paper"    = aws_iam_role.crypto.arn
+    "crypto-scoring"  = aws_iam_role.crypto.arn
+    "crypto-recorder" = aws_iam_role.crypto_recorder.arn
   }
 
   # The image target each task runs (<sha>-<target>). Must equal polymarket-bot
   # sports/ops/images.py FAMILY_TARGET; pmbot-deploy keeps the target when it swaps the sha.
   family_target = {
-    recorder         = "collect"
-    "ingame-capture" = "collect"
-    "xvenue-poller"  = "collect"
-    "rewards-poll"   = "collect"
-    "daily-ingest"   = "model"
-    predictor        = "model"
-    scoring          = "model"
-    "maker-paper"    = "trade"
-    "crypto-paper"   = "crypto"
-    "crypto-scoring" = "crypto"
+    recorder          = "collect"
+    "ingame-capture"  = "collect"
+    "xvenue-poller"   = "collect"
+    "rewards-poll"    = "collect"
+    "daily-ingest"    = "model"
+    predictor         = "model"
+    scoring           = "model"
+    "maker-paper"     = "trade"
+    "crypto-paper"    = "crypto"
+    "crypto-scoring"  = "crypto"
+    "crypto-recorder" = "recorder"
   }
 
-  # The bootstrap sha each family's Terraform-registered revision runs. The crypto families got their own (EP-049):
-  # var.image_tag's sha has no -crypto image.
+  # The bootstrap sha each family's Terraform-registered revision runs. The crypto families got their own (EP-049,
+  # EP-050): var.image_tag's sha has no -crypto or -recorder image.
+  target_image_tag = {
+    crypto   = coalesce(var.crypto_image_tag, var.image_tag)
+    recorder = coalesce(var.crypto_recorder_image_tag, var.image_tag)
+  }
   family_image_tag = {
-    for name in keys(local.family_target) : name => (
-      local.family_target[name] == "crypto" ? coalesce(var.crypto_image_tag, var.image_tag) : var.image_tag
-    )
+    for name in keys(local.family_target) : name => lookup(local.target_image_tag, local.family_target[name], var.image_tag)
   }
 
   # One container per task definition, named after the family. /data is the family's own Docker

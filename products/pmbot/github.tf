@@ -5,7 +5,7 @@
 #                          schedules, and upload + invalidate the status site (never status.json).
 #   pmbot-github-research-run  start research tasks (pmbot-research, pmbot-research-fargate) on the shared
 #                          cluster, follow them and read their log (polymarket-bot EP-034, CH-011; the "Run
-#                          research job" workflow only).
+#                          research job" workflow and the daily pmbot-model-scores workflow only).
 #
 # The OIDC provider is shared and unmanaged, so it is read as a data source, as platform/github-oidc.tf
 # does. Unlike the other products, which deploy through platform's admin role, these are scoped to
@@ -142,12 +142,12 @@ resource "aws_iam_role_policy" "github_deploy" {
       },
       {
         # The execution role, the four per-plane task roles (the legacy pmbot-task role is gone, CHORE-017) and the
-        # crypto families' role (EP-049).
+        # crypto families' roles (EP-049, EP-050).
         Sid    = "PassTheTaskRoles"
         Effect = "Allow"
         Action = ["iam:PassRole"]
         Resource = concat(
-          [aws_iam_role.task_execution.arn, aws_iam_role.crypto.arn],
+          [aws_iam_role.task_execution.arn, aws_iam_role.crypto.arn, aws_iam_role.crypto_recorder.arn],
           [for plane in ["collect", "model", "paper", "research"] : "arn:aws:iam::${local.account_id}:role/pmbot-task-${plane}"],
         )
         Condition = {
@@ -239,9 +239,11 @@ resource "aws_iam_role_policy" "github_deploy" {
 resource "aws_iam_role" "github_research_run" {
   name = "pmbot-github-research-run"
 
-  # main of the repository (the immutable subject, as the push and deploy roles) and only the one workflow file on
+  # main of the repository (the immutable subject, as the push and deploy roles) and only these workflow files on
   # main: a branch, a pull request or another workflow cannot assume it. The event name is not an AWS condition
-  # key; workflow_dispatch is the workflow file's only trigger (polymarket-bot test_research_workflow.py).
+  # key. pmbot-research.yml is workflow_dispatch only (polymarket-bot test_research_workflow.py); pmbot-model-scores.yml
+  # (EP-042) runs the fixed model_scores job daily on a schedule and takes no input. It was missing here, so its
+  # job_workflow_ref was refused from 2026-10-04 on; the sub claim was never the difference.
   # 10800 s: the launcher tails a job's log for as long as it runs (the workflow sets role-duration-seconds).
   max_session_duration = 10800
 
@@ -253,9 +255,11 @@ resource "aws_iam_role" "github_research_run" {
       Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
       Condition = {
         StringEquals = {
-          "token.actions.githubusercontent.com:aud"              = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub"              = local.github_subject
-          "token.actions.githubusercontent.com:job_workflow_ref" = "${var.github_repo}/.github/workflows/pmbot-research.yml@refs/heads/main"
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = local.github_subject
+          "token.actions.githubusercontent.com:job_workflow_ref" = [
+            for f in ["pmbot-research.yml", "pmbot-model-scores.yml"] : "${var.github_repo}/.github/workflows/${f}@refs/heads/main"
+          ]
         }
       }
     }]

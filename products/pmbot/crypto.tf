@@ -95,3 +95,63 @@ resource "aws_scheduler_schedule" "crypto_scoring" {
     ignore_changes = [target[0].ecs_parameters[0].task_definition_arn]
   }
 }
+
+# polymarket-bot EP-050: pmbot-crypto-recorder (services.tf, local.services) records public market data, paper only and
+# with no secret. Its own role, narrower than pmbot-crypto-paper: read and write crypto/recorder/ and nothing else, so
+# it cannot reach the taker's journals (crypto/paper/) or anything under sports/. Only zstd parquet is uploaded, and
+# nothing under crypto/ expires (the bucket's lifecycle rules, above).
+resource "aws_iam_role" "crypto_recorder" {
+  name = "pmbot-crypto-recorder"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = {
+        StringEquals = { "aws:SourceAccount" = local.account_id }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "crypto_recorder" {
+  name = "pmbot-crypto-recorder"
+  role = aws_iam_role.crypto_recorder.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ReadWriteCryptoRecorder"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "arn:aws:s3:::${var.data_bucket}/crypto/recorder/*"
+      },
+      {
+        Sid      = "ListCryptoRecorder"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${var.data_bucket}"
+        Condition = {
+          StringLike = { "s3:prefix" = ["crypto/recorder/*"] }
+        }
+      },
+      {
+        # Same guard as every plane role (iam.tf): the permanent record cannot be deleted from a task.
+        Sid    = "NeverDeleteOrReconfigure"
+        Effect = "Deny"
+        Action = [
+          "s3:Delete*",
+          "s3:PutBucket*",
+          "s3:PutLifecycleConfiguration",
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.data_bucket}",
+          "arn:aws:s3:::${var.data_bucket}/*",
+        ]
+      },
+    ]
+  })
+}

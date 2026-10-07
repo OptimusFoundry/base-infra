@@ -246,6 +246,22 @@ resource "aws_iam_role_policy" "status" {
           }
         },
         {
+          # polymarket-bot EP-050: the crypto recorder's heartbeat for the System page. Read only, state/ only.
+          Sid      = "ReadCryptoRecorderState"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
+          Resource = "arn:aws:s3:::${var.data_bucket}/crypto/recorder/state/*"
+        },
+        {
+          Sid      = "ListCryptoRecorderState"
+          Effect   = "Allow"
+          Action   = ["s3:ListBucket"]
+          Resource = "arn:aws:s3:::${var.data_bucket}"
+          Condition = {
+            StringLike = { "s3:prefix" = ["crypto/recorder/state/*"] }
+          }
+        },
+        {
           # polymarket-bot EP-043: sources for the system UI's files. Read only.
           Sid    = "ReadSiteFileSources"
           Effect = "Allow"
