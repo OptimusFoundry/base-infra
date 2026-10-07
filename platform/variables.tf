@@ -44,6 +44,12 @@ variable "github_oidc_allowed_subjects" {
     "repo:DMSAVentures/*",
     "repo:SAVentures/*",
     "repo:SAVentures@167594521/*",
+    # The org was renamed SAVentures -> OptimusFoundry between 2026-09-27 and
+    # 2026-10-01 (same org ID). Immutable subjects carry the current login, so
+    # the SAVentures entries stopped matching every deploy; this restores the
+    # org-wide trust under the new name (growthtools-stack, launchcamp-stack,
+    # base-server).
+    "repo:OptimusFoundry@167594521/*",
     # AITravel's server deploy (aitravel-server.yml). Deliberately narrower than
     # the org-wide entries above: one repo, main only, immutable-subject form
     # (repo created after the cutoff; IDs from `gh api repos/OptimusFoundry/AITravel`).
