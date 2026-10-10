@@ -167,7 +167,7 @@ other finishes; it does not deadlock, because each roll frees its old task.
    apply that file.
 4. Create the role and database (§ Database).
 5. Merge/run the app repo's deploy workflow — it pushes both images, runs the
-   migrator, deploys and verifies.
+   migrator and deploys. Check the public URL by hand (§ Smoke test).
 
 ### Smoke test
 

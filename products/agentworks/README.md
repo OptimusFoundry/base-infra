@@ -91,11 +91,12 @@ by hand after the first apply. Follow `products/aitravel/README.md`
 
 ## Deploys
 
-No deploy workflow exists yet. agentworks' `server.yml` and `webapp.yml` only
-build and test. The org-wide `repo:OptimusFoundry@167594521/*` OIDC subject
-in `platform/variables.tf` already lets a workflow in this repo assume
-`github-actions-admin-aws`. It should read every identifier from
-`/agentworks/manifest`, as aitravel's does.
+The app repo's `agentworks-server.yml` and `agentworks-webapp.yml` deploy on
+push to `main`, with the same stages as every other product: tests →
+build-push (API + migrator) → migrate → deploy-ecs, and lint → build → S3 →
+CloudFront invalidation. Both read every identifier from
+`/agentworks/manifest`. The org-wide `repo:OptimusFoundry@167594521/*` OIDC
+subject in `platform/variables.tf` lets them assume `github-actions-admin-aws`.
 
 Both ECS task definitions point at `:latest`. Until the first image push,
 `agentworks-api` keeps failing to pull — expected.
@@ -108,7 +109,7 @@ Both ECS task definitions point at `:latest`. Until the first image push,
    `terraform -chdir=products/agentworks init`, plan to a file, read it, apply that file.
 3. Create the role and database (§ Database).
 4. Add the redirect URI to the Google client (§ Google OAuth).
-5. Write and run the deploy workflow in the app repo.
+5. Push to `main` in the app repo (or dispatch both deploy workflows).
 
 ### Smoke test
 
