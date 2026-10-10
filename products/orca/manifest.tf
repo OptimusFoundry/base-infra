@@ -22,6 +22,10 @@ resource "aws_ssm_parameter" "manifest" {
       renderServiceEcrRepository = aws_ecr_repository.render_service.name
       renderServiceEcsService    = aws_ecs_service.render_service.name
       mediaS3Bucket              = aws_s3_bucket.media.id
+      # Repository NAME (not URL), joined to the ECR login's registry in CI.
+      migratorEcrRepository  = aws_ecr_repository.migrator.name
+      migratorTaskDefinition = aws_ecs_task_definition.migrator.family
+      logGroup               = aws_cloudwatch_log_group.api.name
     }
     ssm = {
       productPrefix  = "/${var.product}"

@@ -22,6 +22,10 @@ resource "aws_ssm_parameter" "manifest" {
       ecsService               = aws_ecs_service.api.name
       webappS3Bucket           = module.product.webapp_bucket_id
       cloudfrontDistributionId = module.product.cloudfront_distribution_id
+      # Repository NAME (not URL), joined to the ECR login's registry in CI.
+      migratorEcrRepository  = aws_ecr_repository.migrator.name
+      migratorTaskDefinition = aws_ecs_task_definition.migrator.family
+      logGroup               = aws_cloudwatch_log_group.api.name
     }
     ssm = {
       productPrefix  = "/${var.product}"

@@ -74,7 +74,8 @@ aws ssm put-parameter --name /sjocamp/db_username --type SecureString --value sj
 aws ssm put-parameter --name /sjocamp/db_password --type SecureString --value "$LAUNCHCAMP_APP_PASS" --overwrite
 ```
 
-Stop the port-forward when done. Run Flyway migrations from the base-server repo against this new DB.
+Stop the port-forward when done. Migrations are not run by hand: `sjocamp-server.yml` runs the
+`sjocamp-migrator` task on every deploy, before the API rolls (as every product's deploy does).
 
 ### 2. Register external services for sjocamp
 

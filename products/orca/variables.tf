@@ -152,3 +152,37 @@ variable "media_bucket_name" {
   type        = string
   default     = "protoapp-orca-media"
 }
+
+# --- Migrator (one-shot Flyway task, run by CI with `ecs run-task`; migrator.tf) ---
+
+variable "migrator_ecr_repository_name" {
+  description = "ECR repository name for the Flyway migrator image (Terraform-managed; see migrator.tf)"
+  type        = string
+  default     = "orca-migrator"
+}
+
+variable "migrator_image_tag" {
+  description = "ECR image tag for the migrator task"
+  type        = string
+  default     = "latest"
+}
+
+# Flyway is a JVM: it needs more memory than the Go server, but runs for seconds
+# and exits before the API deploy starts.
+variable "migrator_container_cpu" {
+  description = "CPU shares (weight) for the migrator container"
+  type        = number
+  default     = 64
+}
+
+variable "migrator_container_memory_reservation" {
+  description = "Soft memory reservation (MB) for the migrator container"
+  type        = number
+  default     = 512
+}
+
+variable "migrator_container_memory" {
+  description = "Hard memory cap (MB) for the migrator container"
+  type        = number
+  default     = 1024
+}

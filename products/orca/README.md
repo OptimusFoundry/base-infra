@@ -14,6 +14,7 @@ Stripe metadata). Nothing keys off the repo name.
 | Webapp bucket + CloudFront | `protoapp-orca-webapp` (module convention) |
 | API service | ECS `orca-api`, ECR `orca-server`, target group `orca-api-tg` |
 | Render service | ECS `orca-render-service`, ECR `orca-render-service` |
+| Migrator | task definition `orca-migrator` (no service), ECR `orca-migrator` |
 | Media bucket | `protoapp-orca-media` (public-read) + IAM user of the same name |
 | ALB rule priority | **300** (sjocamp 100, meerkat 200) |
 | Terraform state | `s3://protoapp-orca-terraform-state` |
@@ -123,7 +124,8 @@ PGPASSWORD="$RDS_MASTER_PASS" psql -h localhost -p 15432 -U "$RDS_MASTER_USER" -
   -c 'CREATE DATABASE orca;'
 ```
 
-Then run the app's Flyway migrations against it from the tickuptoks repo.
+Schema migrations are not run by hand: `orca-server.yml` runs the
+`orca-migrator` task (ECR `orca-migrator`) on every deploy, before the API rolls.
 
 ### 3. Push images
 
