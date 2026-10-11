@@ -50,6 +50,12 @@ variable "platform_alb_dns_name" {
   description = "Shared ALB DNS name, used as the API origin"
 }
 
+variable "origin_verify_secret" {
+  type        = string
+  sensitive   = true
+  description = "Shared secret CloudFront sends as X-Origin-Verify; the listener rule requires it (platform output origin_verify_secret)"
+}
+
 variable "platform_alb_listener_arn" {
   type        = string
   description = "Shared HTTP listener ARN to attach this product's rule to"

@@ -44,4 +44,13 @@ resource "aws_lb_listener_rule" "api" {
       values           = [var.product]
     }
   }
+
+  # X-Product-Id routes but is not a secret; this rejects anything that did not
+  # come through one of our distributions. See platform/security.tf.
+  condition {
+    http_header {
+      http_header_name = "X-Origin-Verify"
+      values           = [var.origin_verify_secret]
+    }
+  }
 }

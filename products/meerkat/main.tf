@@ -35,6 +35,7 @@ module "product" {
 
   platform_alb_dns_name     = data.terraform_remote_state.platform.outputs.alb_dns_name
   platform_alb_listener_arn = data.terraform_remote_state.platform.outputs.alb_listener_http_arn
+  origin_verify_secret      = data.terraform_remote_state.platform.outputs.origin_verify_secret
   platform_vpc_id           = data.terraform_remote_state.platform.outputs.vpc_id
   acm_certificate_arn       = data.terraform_remote_state.platform.outputs.acm_certificate_arn
 

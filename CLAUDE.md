@@ -48,6 +48,8 @@ Every product is served the same way regardless of tier: a static SPA on S3 + Cl
 
 CloudFront injects an `X-Product-Id: <slug>` header on the API origin. The ALB listener rule matches `path /api/*` **AND** that header — deliberately not `host_header`, so a product moving to its own apex needs no rule edit. The listener default action is a fixed 404, so an unmatched request never falls through to another product's API.
 
+`X-Product-Id` routes; it is not a secret. Two layers keep the ALB CloudFront-only (added 2026-10-10): the ALB SG admits port 80 only from the `com.amazonaws.global.cloudfront.origin-facing` prefix list, and every listener rule also requires `X-Origin-Verify` = platform output `origin_verify_secret` (also at SSM `/platform/alb/origin_verify`), which CloudFront injects. Rotating that secret, or onboarding a product, must ship the CloudFront header and let the distribution reach `Deployed` **before** the rule requires it, or the API 404s in between.
+
 `alb_rule_priority` must be unique account-wide; AWS rejects duplicates. Current allocation, verified against the live listener: **sjocamp 100, meerkat 200, orca 300, aitravel 310**, new projects from 320 in steps of 10.
 
 A product's slug need not match its repo name — `orca` is the tickuptoks app. The slug is the infrastructure identity (subdomain, SSM prefix, `X-Product-Id`, resource names) and is also what the app sends as `PRODUCT_NAME` to tag its Stripe objects on the shared account.

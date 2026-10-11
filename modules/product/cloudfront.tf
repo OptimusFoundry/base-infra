@@ -79,6 +79,12 @@ resource "aws_cloudfront_distribution" "webapp" {
       name  = "X-Product-Id"
       value = var.product
     }
+
+    # Proves the request came through our CloudFront; see platform/security.tf.
+    custom_header {
+      name  = "X-Origin-Verify"
+      value = var.origin_verify_secret
+    }
   }
 
   default_cache_behavior {

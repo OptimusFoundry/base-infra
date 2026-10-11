@@ -90,3 +90,20 @@ resource "aws_security_group" "postgres" {
     Name = "Allow All"
   }
 }
+
+# Shared secret CloudFront sends to the ALB as X-Origin-Verify; each product's
+# listener rule requires it (modules/product). Second layer behind the prefix
+# list above: that one admits any CloudFront distribution, including someone
+# else's pointed at our ALB. The CloudFront->ALB hop is http-only, so this
+# crosses AWS's network in cleartext. Rotating it means applying every product
+# stack: header first, then the rule, or the APIs 404 in between.
+resource "random_password" "origin_verify" {
+  length  = 48
+  special = false
+}
+
+resource "aws_ssm_parameter" "origin_verify" {
+  name  = "/platform/alb/origin_verify"
+  type  = "SecureString"
+  value = random_password.origin_verify.result
+}

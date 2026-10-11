@@ -97,3 +97,9 @@ output "alb_arn_suffix" {
   value       = aws_lb.k8s_alb.arn_suffix
   description = "ALB ARN suffix for CloudWatch dimensions. The alb_arn output is the full ARN and is NOT usable as a dimension."
 }
+
+output "origin_verify_secret" {
+  value       = random_password.origin_verify.result
+  description = "Value CloudFront sends as X-Origin-Verify and each product's ALB rule requires"
+  sensitive   = true
+}
