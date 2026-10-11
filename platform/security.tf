@@ -34,13 +34,26 @@ resource "aws_security_group" "alb_sg" {
   vpc_id      = aws_vpc.base_vpc.id
 }
 
+# The ALB is reachable only from CloudFront's origin-facing ranges. Opening it to
+# 0.0.0.0/0 let a direct request set X-Product-Id itself (it routes, it is not a
+# secret) and forge CloudFront-Viewer-Address, bypassing any per-IP logic.
+# The prefix list weighs ~55 against the SG's 60-rule ingress quota, so this SG
+# has room for almost nothing else.
+data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 resource "aws_security_group_rule" "alb_http_ingress" {
   type              = "ingress"
   from_port         = 80
   to_port           = 80
   protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  prefix_list_ids   = [data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id]
   security_group_id = aws_security_group.alb_sg.id
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_security_group_rule" "allow_all_egress" {
